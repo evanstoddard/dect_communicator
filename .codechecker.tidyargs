@@ -1,0 +1,3 @@
+--extra-arg=-Wno-reserved-identifier
+--extra-arg=-Wno-reserved-macro-identifier
+--extra-arg=-Wno-unused-parameter

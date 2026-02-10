@@ -1,0 +1,80 @@
+name: CI Build
+
+# Runs on pull requests as well as manual trigger in the actions tab
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+
+  # Create a build job with permission to read repo contents and write additional info to the pull request
+  build:
+    permissions:
+      pull-requests: write
+      repository-projects: read
+      contents: read
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # Fetch repo contents
+      - uses: actions/checkout@v4
+
+      # Install the required tools
+      - name: Install Tools
+        run: ./scripts/init_project.sh
+
+      # Git gets unhappy because ownership of the repo changes between actions/checkout and the actual build of the firmware
+      # So we need to let git know that this is ok and to ignore the "dubious" ownership it complains about
+      - run: git config --global --add safe.directory $(pwd)
+      - run: git fetch --unshallow --tags
+
+      # Run the build script
+      - name: Build firmware
+        run: ./scripts/build.sh
+
+  analysis:
+    permissions:
+      pull-requests: write
+      repository-projects: read
+      contents: read
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # Fetch repo contents
+      - uses: actions/checkout@v4
+
+      # Install the required tools
+      - name: Install Tools
+        run: ./scripts/init_project.sh
+
+      # Install Lizard
+      - run: pip install lizard
+
+      # Install clang tools (required by CodeChecker)
+      - run: sudo apt-get update && sudo apt-get install -y clang clang-tidy
+
+      # Install CodeChecker
+      - run: pip install codechecker
+
+      # Run the analysis script
+      - name: Run Analysis
+        id: analysis
+        run: |
+          chmod +x ./scripts/analysis.sh
+          ./scripts/analysis.sh
+        continue-on-error: true
+
+      # Post contents of analysis script as a PR comment
+      - name: Analysis Comment
+        if: always()
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          filePath: ./build/analysis/analysis.md
+          comment_tag: analysis
+
+      # Fail the job if analysis failed
+      - name: Check Analysis Results
+        if: steps.analysis.outcome == 'failure'
+        run: exit 1

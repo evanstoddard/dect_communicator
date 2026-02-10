@@ -1,0 +1,21 @@
+# Ignore west
+.west
+
+# Ignore fetched west modules
+/bootloader
+/modules
+/nrf
+/nrfxlib
+/test
+/tools
+/zephyr
+
+# Ignore build output
+build
+__pycache__
+
+# Ignore fetched binaries required to run nrfutil based scripts
+scripts/bin
+
+# Ingore venv
+/.venv
