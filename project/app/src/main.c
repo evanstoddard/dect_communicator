@@ -41,5 +41,7 @@ int main(void)
         return ret;
     }
 
+    LOG_INF("DECT Data Layer Initialized!");
+
     return 0;
 }

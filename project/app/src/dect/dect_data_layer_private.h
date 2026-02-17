@@ -27,6 +27,8 @@ extern "C" {
 
 #define DECT_DATA_LAYER_MAX_PAYLOAD_SIZE_BYTES (64U)
 
+#define DECT_DATA_LAYER_HEADER_MAGIC (0xDEC7DA7A)
+
 /*****************************************************************************
  * Structs, Unions, Enums, & Typedefs
  *****************************************************************************/
@@ -37,6 +39,8 @@ extern "C" {
  *
  */
 typedef struct dect_data_layer_header_t {
+    uint32_t magic;
+
     /**
      * @brief Version of data layer header (Currently always 1)
      */
@@ -52,6 +56,25 @@ typedef struct dect_data_layer_header_t {
      */
     uint16_t dst_id;
 } __attribute__((__packed__)) dect_data_layer_header_t;
+
+/**
+ * @typedef dect_data_layer_frame_t
+ * @brief Entire data layer frame
+ *
+ */
+typedef struct dect_data_layer_frame_t {
+    dect_data_layer_header_t header;
+    uint8_t payload[DECT_DATA_LAYER_MAX_PAYLOAD_SIZE_BYTES];
+} __attribute__((__packed__)) dect_data_layer_frame_t;
+
+/**
+ * @typedef dect_data_layer_tx_obj_t
+ * @brief Encapsulating object for writing a data frame so meta data can be stored
+ *
+ */
+typedef struct dect_data_layer_tx_obj_t {
+    dect_data_layer_frame_t frame;
+} dect_data_layer_tx_obj_t;
 
 /*****************************************************************************
  * Function Prototypes
