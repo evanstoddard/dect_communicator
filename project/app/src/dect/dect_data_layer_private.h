@@ -25,7 +25,7 @@ extern "C" {
 
 #define DECT_DATA_LAYER_HEADER_SIZE_BYTES (sizeof(dect_data_layer_header_t))
 
-#define DECT_DATA_LAYER_MAX_PAYLOAD_SIZE_BYTES (64U)
+#define DECT_DATA_LAYER_MAX_PAYLOAD_SIZE_BYTES (94U)
 
 #define DECT_DATA_LAYER_HEADER_MAGIC (0xDEC7DA7A)
 
@@ -55,6 +55,8 @@ typedef struct dect_data_layer_header_t {
      * @brief Destination short address (little endian)
      */
     uint16_t dst_id;
+
+    uint16_t payload_size;
 } __attribute__((__packed__)) dect_data_layer_header_t;
 
 /**

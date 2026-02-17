@@ -37,6 +37,27 @@ config TX_POWER
 	   Transmission power, max 19 dBm due to hardware limitations.
 	   See table 6.2.1-3 of ETSI TS 103 636-4 v1.5.1.
 
+config DECT_PROTO_MAX_REASSEM_CONTEXTS 
+	int "Number of reassembly contexts."
+	range 1 64
+	default 4
+	help
+		Defines the maximum number of reassmbly contexts supported in the data layer.
+		This directly impacts the number of concurrent messages the device can receive.
+
+config DECT_PROTO_MAX_FRAGMENTS_PER_CONTEXT
+	int "Max context fragments."
+	range 4 64
+	default 32
+	help
+		Maximum fragments that can be reassembled for sequence ID.
+
+config DECT_PROTO_MAX_FRAGMENT_SIZE_BYTES
+	int "Max size of fragment."
+	default 16
+	help
+		Maximum size of a protocol layer fragment
+
 endmenu
 
 module = APP
