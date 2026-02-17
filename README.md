@@ -1,37 +1,30 @@
-# Nordic Project Template
+# DECT Communicator
 
-This is a template repo and project structure for Nordic Firmware Projects. 
+A BLE-enabled accessory that provides SMS-style messaging over DECT NR+. This project is in its early stages of development.
 
-## Configuring Project
+## Overview
 
-### Modifying Project Name
-The firmware project lives in the `project` directory of this repo. Feel free to modify that directory name as you see fit. 
+DECT Communicator uses the DECT NR+ radio standard to send and receive short messages between devices. A BLE interface allows mobile devices to connect and interact with the communicator as an accessory.
 
-**NOTE:** If modifying the `project` directory name, please modify the `g_PROJECT_NAME` variable in `scripts/project.conf` to match the name of your new directory name.
+## Architecture
 
-### Setting Nordic SDK & Toolchain Version
-In `scripts/project.conf`, modify the `g_NORDIC_TOOLCHAIN_VERSION` to match the toolchain/sdk version you using.
+The firmware is built on the nRF Connect SDK (NCS) v3.1.1 and Zephyr RTOS, targeting Nordic Semiconductor hardware with DECT NR+ modem support.
 
-Additionally, make sure that the `revision` property of the `nrf` project under `projects/west.yml` matches the toolchain version specified.
+The application is organized into two layers:
 
-## Initializing Project
+- **Data Layer** - Handles low-level DECT NR+ modem interaction including transmission, reception, and carrier configuration.
+- **Protocol Layer** - Manages message framing, fragmentation, and reassembly on top of the data layer.
 
-Simply run `./scripts/init_project.sh`. This script will automatically handle installing `nrfutil` locally to this repo, along with the toolchain.
+## Building
 
-After the toolchain is installed, it will run `west init` and `west update`.
+This project uses the [nRF Connect SDK](https://docs.nordicsemi.com/bundle/ncs-latest/page/nrf/index.html) build system. Helper scripts are provided to automate setup and building.
 
-You can run this script, even after a project is initialized.  It will simply just run `west update` on the project.
+```sh
+./scripts/init_project.sh  # Install dependencies and initialize the project
+./scripts/build.sh          # Build the firmware
+./scripts/flash.sh          # Flash the firmware to the device
+```
 
-## Building Project
+## License
 
-Modify the `g_DEFAULT_BUILD_TARGET` and `g_DEFAULT_BUILD_BOARD` to match the target directory (currently defaulted to `app`) and target board (currently defaulted to `nrf52840dk_nrf52840`) to match the desired defaults.
-
-You can simply run `./scripts/build.sh` to automatically build this for you.
-
-## Dropping Into Toolchain Shell
-
-If you want to directly make `west` calls, you can simply call `toolchain_shell.sh` after the project has been initialized. From here, you can manually call `west build`, etc.
-
-
-## Static Analysis 
-Static analysis through CodeChecker running clang-tidy can be run with `./scripts/run_codechecker.sh` (requires `pip install codechecker`). The script produces a zipped HTML report at `build/analysis/codechecker/codechecker-html.zip`, uses `.clang-tidy` as the default ruleset, `.codechecker.yml` for analyzer options, `.codechecker.tidyargs` for clang-tidy extra args.
+MIT License. See [LICENSE](LICENSE) for details.

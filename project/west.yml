@@ -8,8 +8,6 @@ manifest:
   remotes:
     - name: ncs
       url-base: https://github.com/nrfconnect
-    - name: ovyl
-      url-base: https://github.com/Ovyl
 
   projects:
     - name: nrf
@@ -18,8 +16,4 @@ manifest:
       revision: v3.1.1
       import: true
 
-    - name: ovyl-zephyr-modules
-      remote: ovyl
-      repo-path: ovyl-zephyr-modules
-      revision: main
-      path: modules/ovyl
+
