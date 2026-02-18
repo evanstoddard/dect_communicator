@@ -330,7 +330,7 @@ static int prv_dect_receive(void)
         .start_time = 0,
         .handle = 1, // FIXME: Hard code to handle 1 for now
         .network_id = CONFIG_NETWORK_ID,
-        .mode = NRF_MODEM_DECT_PHY_RX_MODE_CONTINUOUS,
+        .mode = NRF_MODEM_DECT_PHY_RX_MODE_SINGLE_SHOT,
         .rssi_interval = NRF_MODEM_DECT_PHY_RSSI_INTERVAL_OFF,
         .link_id = NRF_MODEM_DECT_PHY_LINK_UNSPECIFIED,
         .rssi_level = -60,

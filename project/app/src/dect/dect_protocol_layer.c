@@ -30,33 +30,33 @@
 
 LOG_MODULE_REGISTER(dect_protocol_layer);
 
-#define DECT_DATA_LAYER_RX_TIMEOUT_MS (10000U)
+#define DECT_PROTOCOL_LAYER_RX_TIMEOUT_MS (10000U)
 
-#define DECT_DATA_LAYER_NUM_WRITE_ATTEMPTS (4U)
+#define DECT_PROTOCOL_LAYER_NUM_WRITE_ATTEMPTS (4U)
 
-#define DECT_PROTOCOL_LAYER_ACK_TIMEOUT_MS (DECT_DATA_LAYER_RX_TIMEOUT_MS / 4)
+#define DECT_PROTOCOL_LAYER_ACK_TIMEOUT_MS (DECT_PROTOCOL_LAYER_RX_TIMEOUT_MS / 4)
 
 /*****************************************************************************
  * Variables
  *****************************************************************************/
 
 typedef enum {
-    DECT_DATA_REASSEM_STATE_FREE,
-    DECT_DATA_REASSEM_STATE_RECEIVING,
-    DECT_DATA_REASSEM_IN_USE,
-} dect_data_layer_reassem_state_t;
+    DECT_PROTOCOL_LAYER_REASSEM_STATE_FREE,
+    DECT_PROTOCOL_LAYER_REASSEM_STATE_RECEIVING,
+    DECT_PROTOCOL_LAYER_REASSEM_IN_USE,
+} dect_protocol_layer_reassem_state_t;
 
 typedef enum {
-    DECT_DATA_LAYER_MSG_ID_ACK,
-} dect_data_layer_message_id_t;
+    DECT_PROTOCOL_LAYER_MSG_ID_ACK,
+} dect_protocol_layer_message_id_t;
 
 /**
- * @typedef dect_data_layer_reassem_ctx_t
+ * @typedef dect_protocol_layer_reassem_ctx_t
  * @brief Reassembly context
  *
  */
-typedef struct dect_data_layer_reassem_ctx_t {
-    volatile dect_data_layer_reassem_state_t state;
+typedef struct dect_protocol_layer_reassem_ctx_t {
+    volatile dect_protocol_layer_reassem_state_t state;
     uint16_t src_id;
     uint16_t seq_id;
     uint8_t frag_total;
@@ -64,7 +64,7 @@ typedef struct dect_data_layer_reassem_ctx_t {
     uint8_t msg_type;
     struct net_buf *buf;
     uint32_t last_rx_ms;
-} dect_data_layer_reassem_ctx_t;
+} dect_protocol_layer_reassem_ctx_t;
 
 /**
  * @brief Private instance
@@ -74,7 +74,7 @@ static struct {
 
     dect_data_layer_rx_handler_t data_layer_rx_handler;
 
-    dect_data_layer_reassem_ctx_t contexts[CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS];
+    dect_protocol_layer_reassem_ctx_t contexts[CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS];
 
     struct k_sem ack_sem;
 } prv_inst;
@@ -94,23 +94,23 @@ NET_BUF_POOL_DEFINE(prv_rx_buf_pool, CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS,
  * @param fragment Pointer to incoming fragment
  * @return Returns pointer to reassembly context
  */
-static dect_data_layer_reassem_ctx_t *prv_get_reassembly_context(const uint16_t src_id,
+static dect_protocol_layer_reassem_ctx_t *prv_get_reassembly_context(const uint16_t src_id,
                                                                  const dect_protocol_layer_fragment_t *fragment)
 {
-    dect_data_layer_reassem_ctx_t *ctx = NULL;
+    dect_protocol_layer_reassem_ctx_t *ctx = NULL;
 
     // Perform some garbage collection on potential expired contexts
     for (size_t i = 0; i < CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS; i++) {
         ctx = &prv_inst.contexts[i];
 
-        if (ctx->state != DECT_DATA_REASSEM_STATE_RECEIVING) {
+        if (ctx->state != DECT_PROTOCOL_LAYER_REASSEM_STATE_RECEIVING) {
             continue;
         }
 
         uint32_t delta_ms = k_uptime_get_32() - ctx->last_rx_ms;
 
-        if (delta_ms >= DECT_DATA_LAYER_RX_TIMEOUT_MS) {
-            ctx->state = DECT_DATA_REASSEM_STATE_FREE;
+        if (delta_ms >= DECT_PROTOCOL_LAYER_RX_TIMEOUT_MS) {
+            ctx->state = DECT_PROTOCOL_LAYER_REASSEM_STATE_FREE;
             net_buf_unref(ctx->buf);
         }
     }
@@ -119,7 +119,7 @@ static dect_data_layer_reassem_ctx_t *prv_get_reassembly_context(const uint16_t 
     for (size_t i = 0; i < CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS; i++) {
         ctx = &prv_inst.contexts[i];
 
-        if (ctx->state != DECT_DATA_REASSEM_STATE_RECEIVING) {
+        if (ctx->state != DECT_PROTOCOL_LAYER_REASSEM_STATE_RECEIVING) {
             continue;
         }
 
@@ -135,11 +135,11 @@ static dect_data_layer_reassem_ctx_t *prv_get_reassembly_context(const uint16_t 
 
     // If we've reach this point, it's a brand new message and we need to allocate a new context
     for (size_t i = 0; i < CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS; i++) {
-        if (ctx->state != DECT_DATA_REASSEM_STATE_FREE) {
+        ctx = &prv_inst.contexts[i];
+
+        if (ctx->state != DECT_PROTOCOL_LAYER_REASSEM_STATE_FREE) {
             continue;
         }
-
-        ctx = &prv_inst.contexts[i];
         ctx->src_id = src_id;
         ctx->frag_idx = 0;
         ctx->frag_total = fragment->header.frag_total;
@@ -152,7 +152,7 @@ static dect_data_layer_reassem_ctx_t *prv_get_reassembly_context(const uint16_t 
         }
 
         ctx->last_rx_ms = k_uptime_get_32();
-        ctx->state = DECT_DATA_REASSEM_STATE_RECEIVING;
+        ctx->state = DECT_PROTOCOL_LAYER_REASSEM_STATE_RECEIVING;
 
         return ctx;
     }
@@ -180,7 +180,7 @@ static void prv_handle_incoming_ack(const dect_protocol_layer_fragment_t *fragme
  * @param fragment Pointer to fragment
  * @return Returns true of fragment header matches existing context meta data
  */
-static bool prv_validate_fragment_header(const dect_data_layer_reassem_ctx_t *ctx,
+static bool prv_validate_fragment_header(const dect_protocol_layer_reassem_ctx_t *ctx,
                                          const dect_protocol_layer_fragment_t *fragment)
 {
     if (fragment->header.frag_total != ctx->frag_total) {
@@ -200,11 +200,11 @@ static bool prv_validate_fragment_header(const dect_data_layer_reassem_ctx_t *ct
  * @param ctx [TODO:parameter]
  * @param fragment [TODO:parameter]
  */
-static void prv_ack_fragment(const dect_data_layer_reassem_ctx_t *ctx, const dect_protocol_layer_fragment_t *fragment)
+static void prv_ack_fragment(const dect_protocol_layer_reassem_ctx_t *ctx, const dect_protocol_layer_fragment_t *fragment)
 {
     dect_protocol_layer_fragment_t ack = {.header = fragment->header};
 
-    ack.header.msg_type = DECT_DATA_LAYER_MSG_ID_ACK;
+    ack.header.msg_type = DECT_PROTOCOL_LAYER_MSG_ID_ACK;
 
     int ret = dect_data_layer_write(ctx->src_id, &ack, sizeof(dect_protocol_layer_header_t));
     if (ret != 0) {
@@ -217,9 +217,9 @@ static void prv_ack_fragment(const dect_data_layer_reassem_ctx_t *ctx, const dec
  *
  * @param ctx [TODO:parameter]
  */
-static void prv_handle_complete_protocol_message(dect_data_layer_reassem_ctx_t *ctx)
+static void prv_handle_complete_protocol_message(dect_protocol_layer_reassem_ctx_t *ctx)
 {
-    ctx->state = DECT_DATA_REASSEM_IN_USE;
+    ctx->state = DECT_PROTOCOL_LAYER_REASSEM_IN_USE;
 
     LOG_INF("Received complete protocol message:\r\n"
             "\tSrc ID: 0x%04X\r\n"
@@ -229,7 +229,7 @@ static void prv_handle_complete_protocol_message(dect_data_layer_reassem_ctx_t *
             ctx->src_id, ctx->seq_id, ctx->msg_type, (char *)ctx->buf->data);
 
     net_buf_unref(ctx->buf);
-    ctx->state = DECT_DATA_REASSEM_STATE_FREE;
+    ctx->state = DECT_PROTOCOL_LAYER_REASSEM_STATE_FREE;
 }
 
 /**
@@ -239,7 +239,7 @@ static void prv_handle_complete_protocol_message(dect_data_layer_reassem_ctx_t *
  * @param fragment Pointer to fragment
  * @param fragment_size_bytes Size of fragment payload in bytes
  */
-static void prv_writing_incoming_fragment(dect_data_layer_reassem_ctx_t *ctx,
+static void prv_writing_incoming_fragment(dect_protocol_layer_reassem_ctx_t *ctx,
                                           const dect_protocol_layer_fragment_t *fragment, size_t fragment_size_bytes)
 {
     if (prv_validate_fragment_header(ctx, fragment) == false) {
@@ -291,7 +291,7 @@ static void prv_on_data_layer_rx(const uint16_t src_id, const void *data, const 
     const dect_protocol_layer_fragment_t *fragment = (dect_protocol_layer_fragment_t *)data;
 
     // Special case for handling incoming ACK.  No need to put into a network buffer
-    if (fragment->header.msg_type == DECT_DATA_LAYER_MSG_ID_ACK) {
+    if (fragment->header.msg_type == DECT_PROTOCOL_LAYER_MSG_ID_ACK) {
         prv_handle_incoming_ack(fragment);
         return;
     }
@@ -301,7 +301,7 @@ static void prv_on_data_layer_rx(const uint16_t src_id, const void *data, const 
         return;
     }
 
-    dect_data_layer_reassem_ctx_t *reassm_ctx = prv_get_reassembly_context(src_id, fragment);
+    dect_protocol_layer_reassem_ctx_t *reassm_ctx = prv_get_reassembly_context(src_id, fragment);
     if (reassm_ctx == NULL) {
         LOG_WRN("Unable to find or allocate reassembly context for incoming fragment.");
         return;
@@ -323,7 +323,7 @@ static int prv_write_fragment(const uint16_t dst_id, const dect_protocol_layer_f
 {
     int ret = 0;
 
-    for (uint8_t i = 0; i < DECT_DATA_LAYER_NUM_WRITE_ATTEMPTS; i++) {
+    for (uint8_t i = 0; i < DECT_PROTOCOL_LAYER_NUM_WRITE_ATTEMPTS; i++) {
         k_sem_reset(&prv_inst.ack_sem);
 
         ret = dect_data_layer_write(dst_id, fragment, sizeof(dect_protocol_layer_header_t) + payload_size);
