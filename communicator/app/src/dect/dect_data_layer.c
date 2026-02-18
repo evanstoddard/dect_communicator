@@ -37,7 +37,7 @@ LOG_MODULE_REGISTER(dect_data_layer);
 
 #define DECT_DATA_LAYER_THREAD_PRIORITY (8)
 
-#define DECT_DATA_LAYER_RX_WINDOW_MS (500U)
+#define DECT_DATA_LAYER_RX_WINDOW_MS (100U)
 
 #define DECT_DATA_LAYER_TX_MSG_QUEUE_DEPTH (8U)
 
@@ -335,7 +335,7 @@ static int prv_dect_receive(void)
         .link_id = NRF_MODEM_DECT_PHY_LINK_UNSPECIFIED,
         .rssi_level = -60,
         .carrier = CONFIG_CARRIER,
-        .duration = 1 * MSEC_PER_SEC * NRF_MODEM_DECT_MODEM_TIME_TICK_RATE_KHZ,
+        .duration = DECT_DATA_LAYER_RX_WINDOW_MS * NRF_MODEM_DECT_MODEM_TIME_TICK_RATE_KHZ,
         .filter.short_network_id = CONFIG_NETWORK_ID & 0xff,
         .filter.is_short_network_id_used = 1,
         /* listen for everything (broadcast mode used) */

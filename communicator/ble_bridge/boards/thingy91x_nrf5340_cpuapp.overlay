@@ -1,0 +1,14 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/* Route HCI H4 transport over uart1 which connects to the nRF9151 */
+
+/ {
+	chosen {
+		zephyr,bt-c2h-uart = &uart1;
+	};
+};
+
+&uart1 {
+	status = "okay";
+	current-speed = <1000000>;
+};

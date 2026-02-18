@@ -1,0 +1,12 @@
+# Copyright (c) 2024 Nordic Semiconductor ASA
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+
+# MCUboot, secure boot, and static partition layouts are disabled for development.
+# Re-enable when DFU/OTA support is needed.
+
+if BOARD_DECTCOMM_NRF5340_CPUAPP || BOARD_DECTCOMM_NRF5340_CPUAPP_NS
+
+config NRF_DEFAULT_EMPTY
+	default y
+
+endif # BOARD_DECTCOMM_NRF5340_CPUAPP || BOARD_DECTCOMM_NRF5340_CPUAPP_NS

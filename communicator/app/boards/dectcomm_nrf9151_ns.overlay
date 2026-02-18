@@ -1,0 +1,17 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/ {
+	chosen {
+		/* BLE host uses external controller on nRF5340 via HCI H4 over UART1 */
+		zephyr,bt-hci = &bt_hci_uart;
+	};
+};
+
+&uart1 {
+	status = "okay";
+
+	bt_hci_uart: bt_hci_uart {
+		compatible = "zephyr,bt-hci-uart";
+		status = "okay";
+	};
+};

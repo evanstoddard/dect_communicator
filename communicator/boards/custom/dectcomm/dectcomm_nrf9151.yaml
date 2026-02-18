@@ -1,0 +1,12 @@
+identifier: dectcomm/nrf9151
+name: DectComm-NRF9151
+type: mcu
+arch: arm
+toolchain:
+  - gnuarmemb
+  - zephyr
+ram: 64
+flash: 256
+supported:
+  - gpio
+  - i2c

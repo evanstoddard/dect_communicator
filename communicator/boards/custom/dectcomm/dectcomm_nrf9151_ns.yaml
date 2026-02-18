@@ -1,0 +1,11 @@
+identifier: dectcomm/nrf9151/ns
+name: DectComm-nRF9151-Non-Secure
+type: mcu
+arch: arm
+toolchain:
+  - gnuarmemb
+  - zephyr
+ram: 128
+flash: 256
+supported:
+  - i2c

@@ -1,0 +1,27 @@
+/*
+ * Copyright (c) 2024 Nordic Semiconductor
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+/dts-v1/;
+#include <nordic/nrf5340_cpuapp_qkaa.dtsi>
+#include "dectcomm_nrf5340_cpuapp_common.dtsi"
+
+/* NFCT pins as GPIOs (replaces deprecated NFCT_PINS_AS_GPIOS Kconfig) */
+&uicr {
+	nfct-pins-as-gpios;
+};
+
+/ {
+	model = "Nordic DectComm NRF5340 Application";
+	compatible = "nordic,dectcomm-nrf5340-cpuapp";
+
+	chosen {
+		zephyr,sram = &sram0_image;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,sram-secure-partition = &sram0_s;
+		zephyr,sram-non-secure-partition = &sram0_ns;
+		zephyr,bt-hci = &bt_hci_ipc0;
+	};
+};

@@ -9,6 +9,7 @@
 /test
 /tools
 /zephyr
+/build_bridge
 
 # Ignore build output
 build
