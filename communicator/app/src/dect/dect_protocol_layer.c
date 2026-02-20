@@ -97,7 +97,7 @@ NET_BUF_POOL_DEFINE(prv_rx_buf_pool, CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS,
  * @return Returns pointer to reassembly context
  */
 static dect_protocol_layer_reassem_ctx_t *prv_get_reassembly_context(const uint16_t src_id,
-                                                                 const dect_protocol_layer_fragment_t *fragment)
+                                                                     const dect_protocol_layer_fragment_t *fragment)
 {
     dect_protocol_layer_reassem_ctx_t *ctx = NULL;
 
@@ -203,7 +203,8 @@ static bool prv_validate_fragment_header(const dect_protocol_layer_reassem_ctx_t
  * @param ctx [TODO:parameter]
  * @param fragment [TODO:parameter]
  */
-static void prv_ack_fragment(const dect_protocol_layer_reassem_ctx_t *ctx, const dect_protocol_layer_fragment_t *fragment)
+static void prv_ack_fragment(const dect_protocol_layer_reassem_ctx_t *ctx,
+                             const dect_protocol_layer_fragment_t *fragment)
 {
     dect_protocol_layer_fragment_t ack = {.header = fragment->header};
 
@@ -419,8 +420,8 @@ static int prv_shell_cmd_write(const struct shell *shell, size_t argc, char **ar
     uint16_t device_id = atoi(argv[1]);
     char *message = argv[2];
 
-    int ret = dect_protocol_layer_write(device_id, DECT_PROTOCOL_LAYER_FRAME_TYPE_ENDPOINT, 1, message,
-                                         strlen(message) + 1);
+    int ret =
+        dect_protocol_layer_write(device_id, DECT_PROTOCOL_LAYER_FRAME_TYPE_ENDPOINT, 1, message, strlen(message) + 1);
 
     if (ret != 0) {
         shell_error(shell, "Failed to write message to device ID 0x%04X: %d", device_id, ret);
