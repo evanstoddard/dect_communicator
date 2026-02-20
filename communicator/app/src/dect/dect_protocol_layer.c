@@ -47,8 +47,9 @@ typedef enum {
 } dect_protocol_layer_reassem_state_t;
 
 typedef enum {
-    DECT_PROTOCOL_LAYER_MSG_ID_ACK,
-} dect_protocol_layer_message_id_t;
+    DECT_PROTOCOL_LAYER_FRAME_TYPE_ACK,
+    DECT_PROTOCOL_LAYER_FRAME_TYPE_ENDPOINT,
+} dect_protocol_layer_frame_type_t;
 
 /**
  * @typedef dect_protocol_layer_reassem_ctx_t
@@ -61,7 +62,8 @@ typedef struct dect_protocol_layer_reassem_ctx_t {
     uint16_t seq_id;
     uint8_t frag_total;
     uint8_t frag_idx;
-    uint8_t msg_type;
+    uint8_t frame_type;
+    uint8_t endpoint_id;
     struct net_buf *buf;
     uint32_t last_rx_ms;
 } dect_protocol_layer_reassem_ctx_t;
@@ -144,7 +146,8 @@ static dect_protocol_layer_reassem_ctx_t *prv_get_reassembly_context(const uint1
         ctx->frag_idx = 0;
         ctx->frag_total = fragment->header.frag_total;
         ctx->seq_id = fragment->header.seq_id;
-        ctx->msg_type = fragment->header.msg_type;
+        ctx->frame_type = fragment->header.frame_type;
+        ctx->endpoint_id = fragment->header.endpoint_id;
 
         ctx->buf = net_buf_alloc(&prv_rx_buf_pool, K_NO_WAIT);
         if (ctx->buf == NULL) {
@@ -187,7 +190,7 @@ static bool prv_validate_fragment_header(const dect_protocol_layer_reassem_ctx_t
         return false;
     }
 
-    if (fragment->header.msg_type != ctx->msg_type) {
+    if (fragment->header.frame_type != ctx->frame_type) {
         return false;
     }
 
@@ -204,7 +207,7 @@ static void prv_ack_fragment(const dect_protocol_layer_reassem_ctx_t *ctx, const
 {
     dect_protocol_layer_fragment_t ack = {.header = fragment->header};
 
-    ack.header.msg_type = DECT_PROTOCOL_LAYER_MSG_ID_ACK;
+    ack.header.frame_type = DECT_PROTOCOL_LAYER_FRAME_TYPE_ACK;
 
     int ret = dect_data_layer_write(ctx->src_id, &ack, sizeof(dect_protocol_layer_header_t));
     if (ret != 0) {
@@ -224,9 +227,10 @@ static void prv_handle_complete_protocol_message(dect_protocol_layer_reassem_ctx
     LOG_INF("Received complete protocol message:\r\n"
             "\tSrc ID: 0x%04X\r\n"
             "\tSeq ID: 0x%04X\r\n"
-            "\tMsg ID: 0x%02X\r\n"
+            "\tFrame Type: 0x%02X\r\n"
+            "\tEndpoint ID: 0x%02X\r\n"
             "\tPayload: %s",
-            ctx->src_id, ctx->seq_id, ctx->msg_type, (char *)ctx->buf->data);
+            ctx->src_id, ctx->seq_id, ctx->frame_type, ctx->endpoint_id, (char *)ctx->buf->data);
 
     net_buf_unref(ctx->buf);
     ctx->state = DECT_PROTOCOL_LAYER_REASSEM_STATE_FREE;
@@ -291,7 +295,7 @@ static void prv_on_data_layer_rx(const uint16_t src_id, const void *data, const 
     const dect_protocol_layer_fragment_t *fragment = (dect_protocol_layer_fragment_t *)data;
 
     // Special case for handling incoming ACK.  No need to put into a network buffer
-    if (fragment->header.msg_type == DECT_PROTOCOL_LAYER_MSG_ID_ACK) {
+    if (fragment->header.frame_type == DECT_PROTOCOL_LAYER_FRAME_TYPE_ACK) {
         prv_handle_incoming_ack(fragment);
         return;
     }
@@ -363,7 +367,8 @@ int dect_protocol_layer_init(void)
     return 0;
 }
 
-int dect_protocol_layer_write(const uint16_t dst_id, const uint8_t msg_type, const void *data, const size_t len_bytes)
+int dect_protocol_layer_write(const uint16_t dst_id, const uint8_t frame_type, const uint8_t endpoint_id,
+                              const void *data, const size_t len_bytes)
 {
     if (data == NULL) {
         return -EINVAL;
@@ -376,7 +381,8 @@ int dect_protocol_layer_write(const uint16_t dst_id, const uint8_t msg_type, con
         frag_total++;
     }
     for (uint8_t i = 0; i < frag_total; i++) {
-        dect_protocol_layer_fragment_t fragment = {.header.msg_type = msg_type,
+        dect_protocol_layer_fragment_t fragment = {.header.frame_type = frame_type,
+                                                   .header.endpoint_id = endpoint_id,
                                                    .header.seq_id = seq_id,
                                                    .header.version = 1,
                                                    .header.flags = 0,
@@ -413,7 +419,8 @@ static int prv_shell_cmd_write(const struct shell *shell, size_t argc, char **ar
     uint16_t device_id = atoi(argv[1]);
     char *message = argv[2];
 
-    int ret = dect_protocol_layer_write(device_id, 1, message, strlen(message) + 1);
+    int ret = dect_protocol_layer_write(device_id, DECT_PROTOCOL_LAYER_FRAME_TYPE_ENDPOINT, 1, message,
+                                         strlen(message) + 1);
 
     if (ret != 0) {
         shell_error(shell, "Failed to write message to device ID 0x%04X: %d", device_id, ret);

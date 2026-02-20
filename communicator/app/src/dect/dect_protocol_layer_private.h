@@ -33,7 +33,8 @@ extern "C" {
  */
 typedef struct dect_protocol_layer_header_t {
     uint8_t version;
-    uint8_t msg_type;
+    uint8_t frame_type;
+    uint8_t endpoint_id;
     uint8_t flags;
     uint8_t frag_total;
     uint8_t frag_idx;

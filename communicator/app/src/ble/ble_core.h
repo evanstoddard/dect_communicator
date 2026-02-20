@@ -3,16 +3,13 @@
  */
 
 /**
- * @file dect_protocol_layer.h
+ * @file ble_core.h
  * @author Evan Stoddard
  * @brief
  */
 
-#ifndef dect_protocol_layer_h
-#define dect_protocol_layer_h
-
-#include <stdint.h>
-#include <stddef.h>
+#ifndef ble_core_h
+#define ble_core_h
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,27 +27,9 @@ extern "C" {
  * Function Prototypes
  *****************************************************************************/
 
-/**
- * @brief Initialize protocol layer
- *
- * @return Return status
- */
-int dect_protocol_layer_init(void);
-
-/**
- * @brief [TODO:description]
- *
- * @param dst_id [TODO:parameter]
- * @param frame_type [TODO:parameter]
- * @param endpoint_id [TODO:parameter]
- * @param data [TODO:parameter]
- * @param len_bytes [TODO:parameter]
- * @return [TODO:return]
- */
-int dect_protocol_layer_write(const uint16_t dst_id, const uint8_t frame_type, const uint8_t endpoint_id,
-                              const void *data, const size_t len_bytes);
+int ble_core_init(void);
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* dect_protocol_layer_h */
+#endif /* ble_core_h */
