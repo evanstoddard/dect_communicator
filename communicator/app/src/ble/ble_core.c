@@ -33,6 +33,10 @@ static const struct bt_data prv_ad_data[] = {
     BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
 };
 
+static struct {
+    struct k_work adv_work;
+} prv_inst;
+
 /*****************************************************************************
  * Private Functions
  *****************************************************************************/
@@ -47,7 +51,7 @@ static void prv_advertising_work_handler(struct k_work *work)
     int ret = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, prv_ad_data, ARRAY_SIZE(prv_ad_data), NULL, 0);
     if (ret) {
         LOG_ERR("Advertising failed to start: %d", ret);
-        return ret;
+        return;
     }
 
     LOG_INF("Advertising started.");
@@ -80,8 +84,7 @@ static void prv_device_disconnected(struct bt_conn *conn, uint8_t reason)
 {
     LOG_INF("Disconnected from device: %u", reason);
 
-    // Explicitly unreference the connection
-    bt_conn_unref(conn);
+    k_work_submit(&prv_inst.adv_work);
 }
 
 BT_CONN_CB_DEFINE(prv_conn_callbacks) = {
@@ -106,6 +109,10 @@ int ble_core_init(void)
         return ret;
     }
     LOG_INF("Bluetooth initialized.");
+
+    k_work_init(&prv_inst.adv_work, prv_advertising_work_handler);
+
+    k_work_submit(&prv_inst.adv_work);
 
     return 0;
 }

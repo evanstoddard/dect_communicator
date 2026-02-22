@@ -1,0 +1,14 @@
+CompileFlags:
+  CompilationDatabase: build/app
+  Remove:
+    - -mfp16-format=ieee
+    - --param=min-pagesize=0
+    - -fno-reorder-functions
+    - -fno-defer-pop
+    - -fno-printf-return-value
+    - -specs=picolibc.specs
+  Add:
+    - -Wno-unknown-warning-option
+
+Diagnostics:
+  UnusedIncludes: None

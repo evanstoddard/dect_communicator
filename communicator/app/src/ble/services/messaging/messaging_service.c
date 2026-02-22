@@ -17,7 +17,7 @@
 
 #include <zephyr/logging/log.h>
 
-#include <zephyr/net_buf.h>
+#include <zephyr/random/random.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
@@ -58,6 +58,13 @@ typedef enum {
     MESSAGING_SERVICE_REASSEM_WITH_ENDPOINT,
 } messaging_service_reassem_state_t;
 
+typedef enum {
+    MESSAGING_SERVICE_GATT_ATTR_SERVICE = 0,
+    MESSAGING_SERVICE_GATT_ATTR_DATA_CHRC = 1,
+    MESSAGING_SERVICE_GATT_ATTR_DATA = 2,
+    MESSAGING_SERVICE_GATT_ATTR_DATA_CCC = 3,
+} messaging_service_gatt_attr_idx_t;
+
 /**
  * @typedef messaging_service_reassem_ctx_t
  * @brief Reassemply context definition
@@ -74,11 +81,17 @@ typedef struct messaging_service_reassem_ctx_t {
 } messaging_service_reassem_ctx_t;
 
 static struct {
+    bool initialized;
+
     struct bt_conn *conn;
 
     messaging_service_reassem_ctx_t contexts[MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS];
 
     struct k_sem ack_sem;
+
+    struct {
+        messaging_service_on_payload_frame_callback_t *on_payload_frame_cb;
+    } callbacks;
 } prv_inst;
 
 NET_BUF_POOL_DEFINE(prv_rx_buf_pool, MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS,
@@ -204,6 +217,8 @@ static messaging_service_reassem_ctx_t *prv_get_reassembly_context(const messagi
         ctx->last_rx_ms = k_uptime_get_32();
         ctx->state = MESSAGING_SERVICE_REASSEM_STATE_RECEIVING;
 
+        *((uintptr_t *)net_buf_user_data(ctx->buf)) = (uintptr_t)ctx;
+
         return ctx;
     }
 
@@ -218,6 +233,67 @@ static messaging_service_reassem_ctx_t *prv_get_reassembly_context(const messagi
  */
 static void prv_handle_incoming_ack(const messaging_service_frame_header_t *header)
 {
+    // FIXME: Validate frame meta data.  Right now, this only supports handling one frame in flight
+    k_sem_give(&prv_inst.ack_sem);
+}
+
+/**
+ * @brief [TODO:description]
+ *
+ * @param ctx [TODO:parameter]
+ * @param messaging_service_payload_frame_t [TODO:parameter]
+ * @param frame [TODO:parameter]
+ * @return [TODO:return]
+ */
+static bool prv_validate_incoming_frame(const messaging_service_reassem_ctx_t *ctx,
+                                        const messaging_service_payload_frame_t *frame)
+{
+    if (frame->header.frag_total != ctx->frag_total) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief [TODO:description]
+ *
+ * @param ctx [TODO:parameter]
+ * @param frame [TODO:parameter]
+ */
+static void prv_ack_incoming_frame(const messaging_service_reassem_ctx_t *ctx,
+                                   const messaging_service_payload_frame_t *frame)
+{
+    messaging_service_frame_header_t header = {
+        .frame_type = MESSAGING_SERVICE_FRAME_TYPE_ACK,
+        .frag_total = frame->header.frag_total,
+        .frag_idx = frame->header.frag_idx,
+        .seq_id = frame->header.seq_id,
+        .version = 0,
+    };
+
+    int ret = bt_gatt_notify(prv_inst.conn, &attr_prv_message_service[MESSAGING_SERVICE_GATT_ATTR_DATA], &header,
+                             sizeof(header));
+
+    if (ret != 0) {
+        LOG_ERR("Failed to ACK incoming frame: %d", ret);
+    }
+}
+
+/**
+ * @brief [TODO:description]
+ *
+ * @param ctx [TODO:parameter]
+ */
+static void prv_handle_complete_message(messaging_service_reassem_ctx_t *ctx)
+{
+    ctx->state = MESSAGING_SERVICE_REASSEM_WITH_ENDPOINT;
+
+    if (prv_inst.callbacks.on_payload_frame_cb == NULL || prv_inst.callbacks.on_payload_frame_cb->callback == NULL) {
+        return;
+    }
+
+    prv_inst.callbacks.on_payload_frame_cb->callback(ctx->buf, prv_inst.callbacks.on_payload_frame_cb->user_ctx);
 }
 
 /**
@@ -228,10 +304,73 @@ static void prv_handle_incoming_ack(const messaging_service_frame_header_t *head
  * @param payload_len [TODO parameter]
  * @return [TODO:return]
  */
-static int prv_handling_incoming_frame(const messaging_service_reassem_ctx_t *ctx,
+static int prv_handling_incoming_frame(messaging_service_reassem_ctx_t *ctx,
                                        const messaging_service_frame_header_t *header, size_t payload_len)
 {
-    return -ENOTSUP;
+    messaging_service_payload_frame_t *frame = (messaging_service_payload_frame_t *)header;
+
+    if (prv_validate_incoming_frame(ctx, frame) == false) {
+        LOG_WRN("Frame header doesn't match reassembly context metadata.");
+        return -EBADMSG;
+    }
+
+    // If we've received a previous frame, chances are, our ACK was dropped, so simply re-ack
+    if (frame->header.frag_idx < ctx->frag_idx) {
+        prv_ack_incoming_frame(ctx, frame);
+        ctx->last_rx_ms = k_uptime_get_32();
+        return 0;
+    }
+
+    // We currently don't support out-of-order frames, so if we're receiving a framefrom the future, silently
+    // fail and let sender timeout or send correct fragment
+    if (frame->header.frag_idx != ctx->frag_idx) {
+        LOG_WRN("A time travelling fragment as arrived.");
+        return -EBADMSG;
+    }
+
+    net_buf_add_mem(ctx->buf, frame->payload, payload_len);
+
+    ctx->frag_idx++;
+    ctx->last_rx_ms = k_uptime_get_32();
+
+    if (ctx->frag_idx == ctx->frag_total) {
+        prv_handle_complete_message(ctx);
+    }
+
+    prv_ack_incoming_frame(ctx, frame);
+
+    return 0;
+}
+
+/**
+ * @brief [TODO:description]
+ *
+ * @param frame [TODO:parameter]
+ * @param len_bytes [TODO:parameter]
+ * @return [TODO:return]
+ */
+static int prv_write_frame(const messaging_service_payload_frame_t *frame, const size_t len_bytes)
+{
+    k_sem_reset(&prv_inst.ack_sem);
+
+    int ret = 0;
+
+    for (uint8_t i = 0; i < MESSAGING_SERVICE_MAX_TX_ATTEMPTS; i++) {
+        ret = bt_gatt_notify(prv_inst.conn, &attr_prv_message_service[MESSAGING_SERVICE_GATT_ATTR_DATA], frame,
+                             len_bytes);
+
+        if (ret != 0) {
+            LOG_ERR("Failed to dispatch notification to BLE stack: %d", ret);
+            return ret;
+        }
+
+        ret = k_sem_take(&prv_inst.ack_sem, K_MSEC(MESSAGING_SERVICE_TX_ACK_TIMEOUT_MS));
+        if (ret == 0) {
+            return 0;
+        }
+    }
+
+    return ret;
 }
 
 /*****************************************************************************
@@ -254,7 +393,7 @@ static ssize_t prv_on_data_write(struct bt_conn *conn, const struct bt_gatt_attr
         return BT_GATT_ERR(BT_ATT_ERR_INSUFFICIENT_RESOURCES);
     }
 
-    int ret = prv_handling_incoming_frame(reassem_ctx, header, len);
+    int ret = prv_handling_incoming_frame(reassem_ctx, header, len - sizeof(messaging_service_frame_header_t));
 
     if (ret != 0) {
         LOG_ERR("Failed to handling incoming frame: %d", ret);
@@ -287,3 +426,64 @@ static void prv_device_disconnected(struct bt_conn *conn, uint8_t reason)
 /*****************************************************************************
  * Functions
  *****************************************************************************/
+
+int messaging_service_init(void)
+{
+    if (prv_inst.initialized == true) {
+        return -EALREADY;
+    }
+
+    k_sem_init(&prv_inst.ack_sem, 0, 1);
+
+    prv_inst.initialized = true;
+
+    return 0;
+}
+
+int messaging_service_write(const void *buf, size_t len_bytes)
+{
+    if (buf == NULL || len_bytes == 0) {
+        return -EINVAL;
+    }
+
+    uint16_t seq_id = sys_rand16_get();
+
+    uint8_t frag_total = len_bytes / MESSAGING_SERVICE_MAX_PAYLOAD_SIZE_BYTES;
+    if ((len_bytes % MESSAGING_SERVICE_MAX_PAYLOAD_SIZE_BYTES) > 0) {
+        frag_total++;
+    }
+
+    for (uint8_t i = 0; i < frag_total; i++) {
+        messaging_service_payload_frame_t frame = {.header.version = 0,
+                                                   .header.frame_type = MESSAGING_SERVICE_FRAME_TYPE_PAYLOAD,
+                                                   .header.frag_total = frag_total,
+                                                   .header.frag_idx = i,
+                                                   .header.seq_id = seq_id};
+
+        size_t frag_size_bytes = len_bytes - (i * MESSAGING_SERVICE_MAX_PAYLOAD_SIZE_BYTES);
+        if (frag_size_bytes > MESSAGING_SERVICE_MAX_PAYLOAD_SIZE_BYTES) {
+            frag_size_bytes = MESSAGING_SERVICE_MAX_PAYLOAD_SIZE_BYTES;
+        }
+
+        memcpy(frame.payload, &((uint8_t *)buf)[i * MESSAGING_SERVICE_MAX_PAYLOAD_SIZE_BYTES], frag_size_bytes);
+        int ret = prv_write_frame(&frame, sizeof(messaging_service_frame_header_t) + frag_size_bytes);
+
+        if (ret != 0) {
+            LOG_ERR("Failed to write frame: %d", ret);
+            return ret;
+        }
+    }
+
+    return 0;
+}
+
+int messaging_service_register_on_payload_frame(messaging_service_on_payload_frame_callback_t *callback)
+{
+    if (callback == NULL || callback->callback == NULL) {
+        return -EINVAL;
+    }
+
+    prv_inst.callbacks.on_payload_frame_cb = callback;
+
+    return 0;
+}

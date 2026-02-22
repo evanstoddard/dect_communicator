@@ -157,6 +157,8 @@ static dect_protocol_layer_reassem_ctx_t *prv_get_reassembly_context(const uint1
         ctx->last_rx_ms = k_uptime_get_32();
         ctx->state = DECT_PROTOCOL_LAYER_REASSEM_STATE_RECEIVING;
 
+        *((uintptr_t *)net_buf_user_data(ctx->buf)) = (uintptr_t)(ctx);
+
         return ctx;
     }
 
