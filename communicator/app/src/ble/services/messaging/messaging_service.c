@@ -25,6 +25,8 @@
 
 #include "messaging_service_protocol.h"
 
+#include "utils/transport_reassembly_buffer/transport_reassembly_buffer.h"
+
 /*****************************************************************************
  * Definitions
  *****************************************************************************/
@@ -53,39 +55,20 @@ static struct bt_uuid_128 messaging_service_data_char_uuid = BT_UUID_INIT_128(ME
  *****************************************************************************/
 
 typedef enum {
-    MESSAGING_SERVICE_REASSEM_STATE_FREE,
-    MESSAGING_SERVICE_REASSEM_STATE_RECEIVING,
-    MESSAGING_SERVICE_REASSEM_WITH_ENDPOINT,
-} messaging_service_reassem_state_t;
-
-typedef enum {
     MESSAGING_SERVICE_GATT_ATTR_SERVICE = 0,
     MESSAGING_SERVICE_GATT_ATTR_DATA_CHRC = 1,
     MESSAGING_SERVICE_GATT_ATTR_DATA = 2,
     MESSAGING_SERVICE_GATT_ATTR_DATA_CCC = 3,
 } messaging_service_gatt_attr_idx_t;
 
-/**
- * @typedef messaging_service_reassem_ctx_t
- * @brief Reassemply context definition
- *
- */
-typedef struct messaging_service_reassem_ctx_t {
-    volatile messaging_service_reassem_state_t state;
-    uint16_t seq_id;
-    uint8_t frag_total;
-    uint8_t frag_idx;
-    uint32_t last_rx_ms;
-
-    struct net_buf *buf;
-} messaging_service_reassem_ctx_t;
-
 static struct {
     bool initialized;
 
     struct bt_conn *conn;
 
-    messaging_service_reassem_ctx_t contexts[MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS];
+    transport_reassem_ctx_t contexts[MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS];
+
+    transport_reassem_buffer_t reassem_buf;
 
     struct k_sem ack_sem;
 
@@ -155,75 +138,39 @@ BT_CONN_CB_DEFINE(prv_conn_callbacks) = {
  *****************************************************************************/
 
 /**
- * @brief Get (or allocate) context for incoming frame
+ * @brief Match callback for transport reassembly buffer
  *
- * @param frame Pointer to incoming frame
- * @return Returns pointer to reassembly context
+ * @param inst Pointer to reassembly buffer
+ * @param ctx Pointer to reassembly context
+ * @param input Pointer to input data (messaging_service_frame_header_t)
+ * @return Returns true if context matches input
  */
-static messaging_service_reassem_ctx_t *prv_get_reassembly_context(const messaging_service_frame_header_t *header)
+static bool prv_reassem_match_callback(const struct transport_reassem_buffer_t *inst,
+                                       const struct transport_reassem_ctx_t *ctx, const void *input)
 {
-    messaging_service_reassem_ctx_t *ctx = NULL;
+    const messaging_service_frame_header_t *header = (const messaging_service_frame_header_t *)input;
 
-    // Perform some garbage collection on potential expired contexts
-    for (size_t i = 0; i < MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS; i++) {
-        ctx = &prv_inst.contexts[i];
+    return ctx->seq_id == header->seq_id;
+}
 
-        if (ctx->state != MESSAGING_SERVICE_REASSEM_STATE_RECEIVING) {
-            continue;
-        }
+/**
+ * @brief Context allocated callback for transport reassembly buffer
+ *
+ * @param reassem_buf Pointer to reassembly buffer
+ * @param reassem_ctx Pointer to newly allocated reassembly context
+ * @param input Pointer to input data (messaging_service_frame_header_t)
+ */
+static void prv_context_allocated_callback(const struct transport_reassem_buffer_t *reassem_buf,
+                                           struct transport_reassem_ctx_t *reassem_ctx, void *input)
+{
+    const messaging_service_frame_header_t *header = (const messaging_service_frame_header_t *)input;
 
-        uint32_t delta_ms = k_uptime_get_32() - ctx->last_rx_ms;
+    reassem_ctx->seq_id = header->seq_id;
+    reassem_ctx->frag_total = header->frag_total;
+    reassem_ctx->frag_idx = 0;
 
-        if (delta_ms >= MESSAGING_SERVICE_RX_TIMEOUT_MS) {
-            ctx->state = MESSAGING_SERVICE_REASSEM_STATE_FREE;
-            net_buf_unref(ctx->buf);
-        }
-    }
-
-    // Now check if there is a receiving context with a matching sequence ID
-    for (size_t i = 0; i < MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS; i++) {
-        ctx = &prv_inst.contexts[i];
-
-        if (ctx->state != MESSAGING_SERVICE_REASSEM_STATE_RECEIVING) {
-            continue;
-        }
-
-        if (ctx->seq_id == header->seq_id) {
-            return ctx;
-        }
-    }
-
-    // Handle case there's no context matching sequence ID and we're not receiving a brand new message
-    if (header->frag_idx != 0) {
-        return NULL;
-    }
-
-    // If we've reach this point, it's a brand new frame and we need to allocate a new context
-    for (size_t i = 0; i < MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS; i++) {
-        ctx = &prv_inst.contexts[i];
-
-        if (ctx->state != MESSAGING_SERVICE_REASSEM_STATE_FREE) {
-            continue;
-        }
-        ctx->frag_idx = 0;
-        ctx->frag_total = header->frag_total;
-        ctx->seq_id = header->seq_id;
-
-        ctx->buf = net_buf_alloc(&prv_rx_buf_pool, K_NO_WAIT);
-        if (ctx->buf == NULL) {
-            return NULL;
-        }
-
-        ctx->last_rx_ms = k_uptime_get_32();
-        ctx->state = MESSAGING_SERVICE_REASSEM_STATE_RECEIVING;
-
-        *((uintptr_t *)net_buf_user_data(ctx->buf)) = (uintptr_t)ctx;
-
-        return ctx;
-    }
-
-    // No available contexts :(
-    return NULL;
+    // FIXME: Set to actual transport ID
+    reassem_ctx->transport_id = 0;
 }
 
 /**
@@ -245,7 +192,7 @@ static void prv_handle_incoming_ack(const messaging_service_frame_header_t *head
  * @param frame [TODO:parameter]
  * @return [TODO:return]
  */
-static bool prv_validate_incoming_frame(const messaging_service_reassem_ctx_t *ctx,
+static bool prv_validate_incoming_frame(const transport_reassem_ctx_t *ctx,
                                         const messaging_service_payload_frame_t *frame)
 {
     if (frame->header.frag_total != ctx->frag_total) {
@@ -261,7 +208,7 @@ static bool prv_validate_incoming_frame(const messaging_service_reassem_ctx_t *c
  * @param ctx [TODO:parameter]
  * @param frame [TODO:parameter]
  */
-static void prv_ack_incoming_frame(const messaging_service_reassem_ctx_t *ctx,
+static void prv_ack_incoming_frame(const transport_reassem_ctx_t *ctx,
                                    const messaging_service_payload_frame_t *frame)
 {
     messaging_service_frame_header_t header = {
@@ -285,15 +232,15 @@ static void prv_ack_incoming_frame(const messaging_service_reassem_ctx_t *ctx,
  *
  * @param ctx [TODO:parameter]
  */
-static void prv_handle_complete_message(messaging_service_reassem_ctx_t *ctx)
+static void prv_handle_complete_message(transport_reassem_ctx_t *ctx)
 {
-    ctx->state = MESSAGING_SERVICE_REASSEM_WITH_ENDPOINT;
+    ctx->state = TRANSPORT_REASSEMBLY_CTX_STATE_IN_USE;
 
     if (prv_inst.callbacks.on_payload_frame_cb == NULL || prv_inst.callbacks.on_payload_frame_cb->callback == NULL) {
         return;
     }
 
-    prv_inst.callbacks.on_payload_frame_cb->callback(ctx->buf, prv_inst.callbacks.on_payload_frame_cb->user_ctx);
+    prv_inst.callbacks.on_payload_frame_cb->callback(ctx->buffer, prv_inst.callbacks.on_payload_frame_cb->user_ctx);
 }
 
 /**
@@ -304,7 +251,7 @@ static void prv_handle_complete_message(messaging_service_reassem_ctx_t *ctx)
  * @param payload_len [TODO parameter]
  * @return [TODO:return]
  */
-static int prv_handling_incoming_frame(messaging_service_reassem_ctx_t *ctx,
+static int prv_handling_incoming_frame(transport_reassem_ctx_t *ctx,
                                        const messaging_service_frame_header_t *header, size_t payload_len)
 {
     messaging_service_payload_frame_t *frame = (messaging_service_payload_frame_t *)header;
@@ -321,14 +268,14 @@ static int prv_handling_incoming_frame(messaging_service_reassem_ctx_t *ctx,
         return 0;
     }
 
-    // We currently don't support out-of-order frames, so if we're receiving a framefrom the future, silently
+    // We currently don't support out-of-order frames, so if we're receiving a frame from the future, silently
     // fail and let sender timeout or send correct fragment
     if (frame->header.frag_idx != ctx->frag_idx) {
         LOG_WRN("A time travelling fragment as arrived.");
         return -EBADMSG;
     }
 
-    net_buf_add_mem(ctx->buf, frame->payload, payload_len);
+    net_buf_add_mem(ctx->buffer, frame->payload, payload_len);
 
     ctx->frag_idx++;
     ctx->last_rx_ms = k_uptime_get_32();
@@ -387,7 +334,8 @@ static ssize_t prv_on_data_write(struct bt_conn *conn, const struct bt_gatt_attr
         return len;
     }
 
-    messaging_service_reassem_ctx_t *reassem_ctx = prv_get_reassembly_context(header);
+    transport_reassem_ctx_t *reassem_ctx =
+        transport_reassem_buffer_get_context(&prv_inst.reassem_buf, header, header->frag_idx);
     if (reassem_ctx == NULL) {
         LOG_WRN("Unable to find or allocate reassembly context for incoming frame.");
         return BT_GATT_ERR(BT_ATT_ERR_INSUFFICIENT_RESOURCES);
@@ -434,6 +382,20 @@ int messaging_service_init(void)
     }
 
     k_sem_init(&prv_inst.ack_sem, 0, 1);
+
+    transport_reassem_buffer_params_t reassem_params = {
+        .num_buffers = MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS,
+        .buffer_size_bytes = MESSAGING_SERVICE_MAX_RX_REASSEM_BUF_SIZE_BYTES,
+        .context_size_bytes = sizeof(transport_reassem_ctx_t),
+        .rx_timeout_ms = MESSAGING_SERVICE_RX_TIMEOUT_MS,
+        .match_cb = prv_reassem_match_callback,
+        .ctx_allocated_cb = prv_context_allocated_callback};
+
+    int ret = transport_reassem_buffer_init(&prv_inst.reassem_buf, &prv_rx_buf_pool, prv_inst.contexts, &reassem_params);
+    if (ret != 0) {
+        LOG_ERR("Failed to initialize reassembly buffer: %d", ret);
+        return ret;
+    }
 
     prv_inst.initialized = true;
 

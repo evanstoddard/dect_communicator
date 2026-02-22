@@ -24,6 +24,10 @@
 
 #include <zephyr/random/random.h>
 
+#include "utils/transport_reassembly_buffer/transport_reassembly_buffer.h"
+
+#include "endpoints/transport_ids.h"
+
 /*****************************************************************************
  * Definitions
  *****************************************************************************/
@@ -52,20 +56,25 @@ typedef enum {
 } dect_protocol_layer_frame_type_t;
 
 /**
+ * @typedef dect_protocol_layer_reassem_buf_input_t
+ * @brief [TODO:description]
+ *
+ */
+typedef struct dect_protocol_layer_reassem_buf_input_t {
+    uint16_t src_id;
+    const dect_protocol_layer_fragment_t *fragment;
+} dect_protocol_layer_reassem_buf_input_t;
+
+/**
  * @typedef dect_protocol_layer_reassem_ctx_t
  * @brief Reassembly context
  *
  */
 typedef struct dect_protocol_layer_reassem_ctx_t {
-    volatile dect_protocol_layer_reassem_state_t state;
+    transport_reassem_ctx_t base_ctx;
     uint16_t src_id;
-    uint16_t seq_id;
-    uint8_t frag_total;
-    uint8_t frag_idx;
     uint8_t frame_type;
     uint8_t endpoint_id;
-    struct net_buf *buf;
-    uint32_t last_rx_ms;
 } dect_protocol_layer_reassem_ctx_t;
 
 /**
@@ -78,6 +87,8 @@ static struct {
 
     dect_protocol_layer_reassem_ctx_t contexts[CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS];
 
+    transport_reassem_buffer_t reassem_buf;
+
     struct k_sem ack_sem;
 } prv_inst;
 
@@ -88,83 +99,6 @@ NET_BUF_POOL_DEFINE(prv_rx_buf_pool, CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS,
 /*****************************************************************************
  * Private Functions
  *****************************************************************************/
-
-/**
- * @brief Get (or allocate) context for incoming fragment
- *
- * @param src_id Source ID of fragment origin
- * @param fragment Pointer to incoming fragment
- * @return Returns pointer to reassembly context
- */
-static dect_protocol_layer_reassem_ctx_t *prv_get_reassembly_context(const uint16_t src_id,
-                                                                     const dect_protocol_layer_fragment_t *fragment)
-{
-    dect_protocol_layer_reassem_ctx_t *ctx = NULL;
-
-    // Perform some garbage collection on potential expired contexts
-    for (size_t i = 0; i < CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS; i++) {
-        ctx = &prv_inst.contexts[i];
-
-        if (ctx->state != DECT_PROTOCOL_LAYER_REASSEM_STATE_RECEIVING) {
-            continue;
-        }
-
-        uint32_t delta_ms = k_uptime_get_32() - ctx->last_rx_ms;
-
-        if (delta_ms >= DECT_PROTOCOL_LAYER_RX_TIMEOUT_MS) {
-            ctx->state = DECT_PROTOCOL_LAYER_REASSEM_STATE_FREE;
-            net_buf_unref(ctx->buf);
-        }
-    }
-
-    // Now check if there is a receiving context with a matching sequence and source ID
-    for (size_t i = 0; i < CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS; i++) {
-        ctx = &prv_inst.contexts[i];
-
-        if (ctx->state != DECT_PROTOCOL_LAYER_REASSEM_STATE_RECEIVING) {
-            continue;
-        }
-
-        if (ctx->src_id == src_id && ctx->seq_id == fragment->header.seq_id) {
-            return ctx;
-        }
-    }
-
-    // Handle case there's no context matching sequence ID and we're not receiving a brand new message
-    if (fragment->header.frag_idx != 0) {
-        return NULL;
-    }
-
-    // If we've reach this point, it's a brand new message and we need to allocate a new context
-    for (size_t i = 0; i < CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS; i++) {
-        ctx = &prv_inst.contexts[i];
-
-        if (ctx->state != DECT_PROTOCOL_LAYER_REASSEM_STATE_FREE) {
-            continue;
-        }
-        ctx->src_id = src_id;
-        ctx->frag_idx = 0;
-        ctx->frag_total = fragment->header.frag_total;
-        ctx->seq_id = fragment->header.seq_id;
-        ctx->frame_type = fragment->header.frame_type;
-        ctx->endpoint_id = fragment->header.endpoint_id;
-
-        ctx->buf = net_buf_alloc(&prv_rx_buf_pool, K_NO_WAIT);
-        if (ctx->buf == NULL) {
-            return NULL;
-        }
-
-        ctx->last_rx_ms = k_uptime_get_32();
-        ctx->state = DECT_PROTOCOL_LAYER_REASSEM_STATE_RECEIVING;
-
-        *((uintptr_t *)net_buf_user_data(ctx->buf)) = (uintptr_t)(ctx);
-
-        return ctx;
-    }
-
-    // No available contexts :(
-    return NULL;
-}
 
 /**
  * @brief Handling incoming ACK
@@ -188,7 +122,7 @@ static void prv_handle_incoming_ack(const dect_protocol_layer_fragment_t *fragme
 static bool prv_validate_fragment_header(const dect_protocol_layer_reassem_ctx_t *ctx,
                                          const dect_protocol_layer_fragment_t *fragment)
 {
-    if (fragment->header.frag_total != ctx->frag_total) {
+    if (fragment->header.frag_total != ctx->base_ctx.frag_total) {
         return false;
     }
 
@@ -225,18 +159,8 @@ static void prv_ack_fragment(const dect_protocol_layer_reassem_ctx_t *ctx,
  */
 static void prv_handle_complete_protocol_message(dect_protocol_layer_reassem_ctx_t *ctx)
 {
-    ctx->state = DECT_PROTOCOL_LAYER_REASSEM_IN_USE;
-
-    LOG_INF("Received complete protocol message:\r\n"
-            "\tSrc ID: 0x%04X\r\n"
-            "\tSeq ID: 0x%04X\r\n"
-            "\tFrame Type: 0x%02X\r\n"
-            "\tEndpoint ID: 0x%02X\r\n"
-            "\tPayload: %s",
-            ctx->src_id, ctx->seq_id, ctx->frame_type, ctx->endpoint_id, (char *)ctx->buf->data);
-
-    net_buf_unref(ctx->buf);
-    ctx->state = DECT_PROTOCOL_LAYER_REASSEM_STATE_FREE;
+    // TODO: A majority of this should be refactored into the transport reassembly module
+    ctx->base_ctx.state = TRANSPORT_REASSEMBLY_CTX_STATE_IN_USE;
 }
 
 /**
@@ -249,31 +173,34 @@ static void prv_handle_complete_protocol_message(dect_protocol_layer_reassem_ctx
 static void prv_writing_incoming_fragment(dect_protocol_layer_reassem_ctx_t *ctx,
                                           const dect_protocol_layer_fragment_t *fragment, size_t fragment_size_bytes)
 {
+    // TODO: A lot of what is below can probably be refactored into the transport reassembly module.
+
     if (prv_validate_fragment_header(ctx, fragment) == false) {
         LOG_WRN("Fragment header doesn't match reassembly context metadata.");
         return;
     }
 
     // If we've received a previous fragment, chances are, our ACK was dropped, so simply re-ack
-    if (fragment->header.frag_idx < ctx->frag_idx) {
+    if (fragment->header.frag_idx < ctx->base_ctx.frag_idx) {
         prv_ack_fragment(ctx, fragment);
-        ctx->last_rx_ms = k_uptime_get_32();
+        ctx->base_ctx.last_rx_ms = k_uptime_get_32();
         return;
     }
 
     // We currently don't support out-of-order fragments, so if we're receiving a fragment from the future, silently
     // fail and let sender timeout or send correct fragment
-    if (fragment->header.frag_idx != ctx->frag_idx) {
+    if (fragment->header.frag_idx != ctx->base_ctx.frag_idx) {
         LOG_WRN("A time travelling fragment as arrived.");
         return;
     }
 
-    net_buf_add_mem(ctx->buf, fragment->payload, fragment_size_bytes - sizeof(dect_protocol_layer_header_t));
+    net_buf_add_mem(ctx->base_ctx.buffer, fragment->payload,
+                    fragment_size_bytes - sizeof(dect_protocol_layer_header_t));
 
-    ctx->frag_idx++;
-    ctx->last_rx_ms = k_uptime_get_32();
+    ctx->base_ctx.frag_idx++;
+    ctx->base_ctx.last_rx_ms = k_uptime_get_32();
 
-    if (ctx->frag_idx == ctx->frag_total) {
+    if (ctx->base_ctx.frag_idx == ctx->base_ctx.frag_total) {
         prv_handle_complete_protocol_message(ctx);
     }
 
@@ -295,7 +222,7 @@ static void prv_on_data_layer_rx(const uint16_t src_id, const void *data, const 
         return;
     }
 
-    const dect_protocol_layer_fragment_t *fragment = (dect_protocol_layer_fragment_t *)data;
+    const dect_protocol_layer_fragment_t *fragment = (const dect_protocol_layer_fragment_t *)data;
 
     // Special case for handling incoming ACK.  No need to put into a network buffer
     if (fragment->header.frame_type == DECT_PROTOCOL_LAYER_FRAME_TYPE_ACK) {
@@ -308,7 +235,11 @@ static void prv_on_data_layer_rx(const uint16_t src_id, const void *data, const 
         return;
     }
 
-    dect_protocol_layer_reassem_ctx_t *reassm_ctx = prv_get_reassembly_context(src_id, fragment);
+    dect_protocol_layer_reassem_buf_input_t input = {.src_id = src_id, .fragment = fragment};
+
+    dect_protocol_layer_reassem_ctx_t *reassm_ctx =
+        (dect_protocol_layer_reassem_ctx_t *)transport_reassem_buffer_get_context(&prv_inst.reassem_buf, &input,
+                                                                                  fragment->header.frag_idx);
     if (reassm_ctx == NULL) {
         LOG_WRN("Unable to find or allocate reassembly context for incoming fragment.");
         return;
@@ -349,6 +280,55 @@ static int prv_write_fragment(const uint16_t dst_id, const dect_protocol_layer_f
     return ret;
 }
 
+/**
+ * @brief [TODO:description]
+ *
+ * @param inst [TODO:parameter]
+ * @param ctx [TODO:parameter]
+ * @param input [TODO:parameter]
+ * @return [TODO:return]
+ */
+static bool prv_reassem_match_callback(const struct transport_reassem_buffer_t *inst,
+                                       const struct transport_reassem_ctx_t *ctx, const void *input)
+{
+    dect_protocol_layer_reassem_ctx_t *context = (dect_protocol_layer_reassem_ctx_t *)ctx;
+    dect_protocol_layer_reassem_buf_input_t *_input = (dect_protocol_layer_reassem_buf_input_t *)input;
+
+    if (context->base_ctx.seq_id != _input->fragment->header.seq_id) {
+        return false;
+    }
+
+    if (context->src_id != _input->src_id) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief [TODO:description]
+ *
+ * @param reassem_buf [TODO:parameter]
+ * @param reassem_ctx [TODO:parameter]
+ * @param input [TODO:parameter]
+ */
+static void prv_context_allocated_callback(const struct transport_reassem_buffer_t *reassem_buf,
+                                           struct transport_reassem_ctx_t *reassem_ctx, void *input)
+{
+    dect_protocol_layer_reassem_ctx_t *context = (dect_protocol_layer_reassem_ctx_t *)reassem_ctx;
+    dect_protocol_layer_reassem_buf_input_t *_input = (dect_protocol_layer_reassem_buf_input_t *)input;
+
+    context->src_id = _input->src_id;
+    context->endpoint_id = _input->fragment->header.endpoint_id;
+    context->frame_type = _input->fragment->header.frame_type;
+
+    context->base_ctx.seq_id = _input->fragment->header.seq_id;
+    context->base_ctx.frag_total = _input->fragment->header.frag_total;
+    context->base_ctx.frag_idx = 0;
+
+    context->base_ctx.transport_id = ENDPOINT_TRANSPORT_ID_DECT;
+}
+
 /*****************************************************************************
  * Functions
  *****************************************************************************/
@@ -362,6 +342,19 @@ int dect_protocol_layer_init(void)
 
     int ret = dect_data_layer_register_rx_handler(&prv_inst.data_layer_rx_handler);
     if (ret != 0) {
+        return ret;
+    }
+
+    transport_reassem_buffer_params_t reassem_params = {
+        .num_buffers = CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS,
+        .buffer_size_bytes = (CONFIG_DECT_PROTO_MAX_FRAGMENT_SIZE_BYTES * CONFIG_DECT_PROTO_MAX_FRAGMENTS_PER_CONTEXT),
+        .context_size_bytes = sizeof(dect_protocol_layer_reassem_ctx_t),
+        .match_cb = prv_reassem_match_callback,
+        .ctx_allocated_cb = prv_context_allocated_callback};
+
+    ret = transport_reassem_buffer_init(&prv_inst.reassem_buf, &prv_rx_buf_pool, prv_inst.contexts, &reassem_params);
+    if (ret != 0) {
+        LOG_ERR("Failed to intialize reassembly buffer: %d", ret);
         return ret;
     }
 
