@@ -28,7 +28,7 @@ extern "C" {
 
 /**
  * @typedef dect_data_layer_rx_handler_t
- * @brief [TODO:description]
+ * @brief RX handler registered with the data layer to receive incoming frames
  *
  */
 typedef struct dect_data_layer_rx_handler_t {
@@ -50,20 +50,20 @@ typedef struct dect_data_layer_rx_handler_t {
 int dect_data_layer_init(void);
 
 /**
- * @brief [TODO:description]
+ * @brief Write data over the DECT NR+ PHY data layer
  *
- * @param dst_id [TODO:parameter]
- * @param buf [TODO:parameter]
- * @param buf_size_bytes [TODO:parameter]
- * @return [TODO:return]
+ * @param dst_id Destination device ID
+ * @param buf Pointer to data buffer to transmit
+ * @param buf_size_bytes Size of the data buffer in bytes
+ * @return 0 on success, negative errno on failure
  */
 int dect_data_layer_write(const uint16_t dst_id, const void *buf, const size_t buf_size_bytes);
 
 /**
- * @brief [TODO:description]
+ * @brief Register a handler for incoming data layer frames
  *
- * @param rx_handler [TODO:parameter]
- * @return [TODO:return]
+ * @param rx_handler Pointer to the RX handler to register
+ * @return 0 on success, -EINVAL if rx_handler or its handler function is NULL
  */
 int dect_data_layer_register_rx_handler(dect_data_layer_rx_handler_t *rx_handler);
 

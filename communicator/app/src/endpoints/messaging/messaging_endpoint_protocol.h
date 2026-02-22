@@ -42,7 +42,7 @@ typedef enum {
 
 /**
  * @typedef messaging_endpoint_header_t
- * @brief [TODO:description]
+ * @brief Header for messaging endpoint protocol messages
  *
  */
 typedef struct messaging_endpoint_header_t {
@@ -57,7 +57,7 @@ typedef struct messaging_endpoint_text_message_metadata_t {
 
 /**
  * @typedef messaging_endpoint_text_message_t
- * @brief [TODO:description]
+ * @brief Text message containing header, routing metadata, and payload
  *
  */
 typedef struct messaging_endpoint_text_message_t {

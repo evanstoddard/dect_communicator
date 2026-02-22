@@ -23,8 +23,11 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/conn.h>
 
+#include "endpoints/endpoint_transport.h"
+#include "endpoints/endpoint_id.h"
 #include "messaging_service_protocol.h"
 
+#include "utils/device_id.h"
 #include "utils/transport_reassembly_buffer/transport_reassembly_buffer.h"
 
 /*****************************************************************************
@@ -72,45 +75,45 @@ static struct {
 
     struct k_sem ack_sem;
 
-    struct {
-        messaging_service_on_payload_frame_callback_t *on_payload_frame_cb;
-    } callbacks;
+    endpoint_transport_rx_cb_t rx_callback;
+
 } prv_inst;
 
 NET_BUF_POOL_DEFINE(prv_rx_buf_pool, MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS,
-                    MESSAGING_SERVICE_MAX_RX_REASSEM_BUF_SIZE_BYTES, sizeof(uintptr_t), NULL);
+                    MESSAGING_SERVICE_MAX_RX_REASSEM_BUF_SIZE_BYTES, sizeof(uintptr_t),
+                    transport_reassem_net_buf_destroy);
 
 /*****************************************************************************
  * BLE Bindings
  *****************************************************************************/
 
 /**
- * @brief [TODO:description]
+ * @brief GATT write callback for the messaging data characteristic
  *
- * @param conn [TODO:parameter]
- * @param attr [TODO:parameter]
- * @param buf [TODO:parameter]
- * @param len [TODO:parameter]
- * @param offset [TODO:parameter]
- * @param flags [TODO:parameter]
- * @return [TODO:return]
+ * @param conn Pointer to the BLE connection
+ * @param attr Pointer to the GATT attribute being written
+ * @param buf Pointer to the write data buffer
+ * @param len Length of the write data in bytes
+ * @param offset Write offset
+ * @param flags GATT write flags
+ * @return Number of bytes consumed on success, BT_GATT_ERR on failure
  */
 static ssize_t prv_on_data_write(struct bt_conn *conn, const struct bt_gatt_attr *attr, const void *buf, uint16_t len,
                                  uint16_t offset, uint8_t flags);
 
 /**
- * @brief [TODO:description]
+ * @brief Callback for CCC descriptor configuration changes on the data characteristic
  *
- * @param attr [TODO:parameter]
- * @param value [TODO:parameter]
+ * @param attr Pointer to the GATT attribute
+ * @param value New CCC value (notification/indication enable flags)
  */
 static void prv_on_data_char_config_changed(const struct bt_gatt_attr *attr, uint16_t value);
 
 /**
- * @brief [TODO:description]
+ * @brief Callback called when a BLE device connects
  *
- * @param conn [TODO:parameter]
- * @param err [TODO:parameter]
+ * @param conn Pointer to the BLE connection
+ * @param err Error code, 0 on success
  */
 static void prv_device_connected(struct bt_conn *conn, uint8_t err);
 
@@ -168,6 +171,7 @@ static void prv_context_allocated_callback(const struct transport_reassem_buffer
     reassem_ctx->seq_id = header->seq_id;
     reassem_ctx->frag_total = header->frag_total;
     reassem_ctx->frag_idx = 0;
+    reassem_ctx->src_id = device_id();
 
     // FIXME: Set to actual transport ID
     reassem_ctx->transport_id = 0;
@@ -185,12 +189,11 @@ static void prv_handle_incoming_ack(const messaging_service_frame_header_t *head
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Validate that an incoming frame's header matches its reassembly context
  *
- * @param ctx [TODO:parameter]
- * @param messaging_service_payload_frame_t [TODO:parameter]
- * @param frame [TODO:parameter]
- * @return [TODO:return]
+ * @param ctx Pointer to the reassembly context
+ * @param frame Pointer to the incoming payload frame
+ * @return true if the frame header is consistent with the context
  */
 static bool prv_validate_incoming_frame(const transport_reassem_ctx_t *ctx,
                                         const messaging_service_payload_frame_t *frame)
@@ -203,13 +206,12 @@ static bool prv_validate_incoming_frame(const transport_reassem_ctx_t *ctx,
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Send an ACK notification back to the BLE client for a received frame
  *
- * @param ctx [TODO:parameter]
- * @param frame [TODO:parameter]
+ * @param ctx Pointer to the reassembly context
+ * @param frame Pointer to the frame being acknowledged
  */
-static void prv_ack_incoming_frame(const transport_reassem_ctx_t *ctx,
-                                   const messaging_service_payload_frame_t *frame)
+static void prv_ack_incoming_frame(const transport_reassem_ctx_t *ctx, const messaging_service_payload_frame_t *frame)
 {
     messaging_service_frame_header_t header = {
         .frame_type = MESSAGING_SERVICE_FRAME_TYPE_ACK,
@@ -228,31 +230,31 @@ static void prv_ack_incoming_frame(const transport_reassem_ctx_t *ctx,
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Handle a fully reassembled message received from the BLE client
  *
- * @param ctx [TODO:parameter]
+ * @param ctx Pointer to the completed reassembly context
  */
 static void prv_handle_complete_message(transport_reassem_ctx_t *ctx)
 {
     ctx->state = TRANSPORT_REASSEMBLY_CTX_STATE_IN_USE;
 
-    if (prv_inst.callbacks.on_payload_frame_cb == NULL || prv_inst.callbacks.on_payload_frame_cb->callback == NULL) {
+    if (prv_inst.rx_callback == NULL) {
         return;
     }
 
-    prv_inst.callbacks.on_payload_frame_cb->callback(ctx->buffer, prv_inst.callbacks.on_payload_frame_cb->user_ctx);
+    prv_inst.rx_callback(ctx->src_id, ENDPOINT_ID_MESSAGING_ENDPOINT, ctx);
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Process an incoming payload frame, writing it to the reassembly buffer
  *
- * @param ctx [TODO:parameter]
- * @param header [TODO:parameter]
- * @param payload_len [TODO parameter]
- * @return [TODO:return]
+ * @param ctx Pointer to the reassembly context
+ * @param header Pointer to the frame header
+ * @param payload_len Length of the frame payload in bytes (excluding header)
+ * @return 0 on success, -EBADMSG on validation failure
  */
-static int prv_handling_incoming_frame(transport_reassem_ctx_t *ctx,
-                                       const messaging_service_frame_header_t *header, size_t payload_len)
+static int prv_handling_incoming_frame(transport_reassem_ctx_t *ctx, const messaging_service_frame_header_t *header,
+                                       size_t payload_len)
 {
     messaging_service_payload_frame_t *frame = (messaging_service_payload_frame_t *)header;
 
@@ -290,11 +292,11 @@ static int prv_handling_incoming_frame(transport_reassem_ctx_t *ctx,
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Write a single frame to the BLE client with ACK-based retransmission
  *
- * @param frame [TODO:parameter]
- * @param len_bytes [TODO:parameter]
- * @return [TODO:return]
+ * @param frame Pointer to the payload frame to transmit
+ * @param len_bytes Total size of the frame in bytes (header + payload)
+ * @return 0 on success, negative errno on failure or timeout
  */
 static int prv_write_frame(const messaging_service_payload_frame_t *frame, const size_t len_bytes)
 {
@@ -383,29 +385,44 @@ int messaging_service_init(void)
 
     k_sem_init(&prv_inst.ack_sem, 0, 1);
 
-    transport_reassem_buffer_params_t reassem_params = {
-        .num_buffers = MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS,
-        .buffer_size_bytes = MESSAGING_SERVICE_MAX_RX_REASSEM_BUF_SIZE_BYTES,
-        .context_size_bytes = sizeof(transport_reassem_ctx_t),
-        .rx_timeout_ms = MESSAGING_SERVICE_RX_TIMEOUT_MS,
-        .match_cb = prv_reassem_match_callback,
-        .ctx_allocated_cb = prv_context_allocated_callback};
+    transport_reassem_buffer_params_t reassem_params = {.num_buffers = MESSAGING_SERVICE_MAX_RX_REASSEM_CONTEXTS,
+                                                        .buffer_size_bytes =
+                                                            MESSAGING_SERVICE_MAX_RX_REASSEM_BUF_SIZE_BYTES,
+                                                        .context_size_bytes = sizeof(transport_reassem_ctx_t),
+                                                        .rx_timeout_ms = MESSAGING_SERVICE_RX_TIMEOUT_MS,
+                                                        .match_cb = prv_reassem_match_callback,
+                                                        .ctx_allocated_cb = prv_context_allocated_callback};
 
-    int ret = transport_reassem_buffer_init(&prv_inst.reassem_buf, &prv_rx_buf_pool, prv_inst.contexts, &reassem_params);
+    int ret =
+        transport_reassem_buffer_init(&prv_inst.reassem_buf, &prv_rx_buf_pool, prv_inst.contexts, &reassem_params);
     if (ret != 0) {
         LOG_ERR("Failed to initialize reassembly buffer: %d", ret);
         return ret;
     }
+
+    static endpoint_transport_t transport = {
+        .api = {.transport_register_rx_cb = messaging_service_register_rx_callback,
+                .transport_write = messaging_service_write},
+        .medium = ENDPOINT_TRANSPORT_MEDIUM_BLE,
+        .type = ENDPOINT_TRANSPORT_TYPE_UPSTREAM,
+    };
+
+    endpoint_router_register_transport(&transport);
 
     prv_inst.initialized = true;
 
     return 0;
 }
 
-int messaging_service_write(const void *buf, size_t len_bytes)
+int messaging_service_write(uint16_t dst_id, uint8_t endpoint_id, const void *data, const size_t len_bytes)
 {
-    if (buf == NULL || len_bytes == 0) {
+    if (data == NULL || len_bytes == 0) {
         return -EINVAL;
+    }
+
+    if (endpoint_id != ENDPOINT_ID_MESSAGING_ENDPOINT) {
+        LOG_ERR("Invalid endpoint ID.");
+        return -ENOTSUP;
     }
 
     uint16_t seq_id = sys_rand16_get();
@@ -427,7 +444,7 @@ int messaging_service_write(const void *buf, size_t len_bytes)
             frag_size_bytes = MESSAGING_SERVICE_MAX_PAYLOAD_SIZE_BYTES;
         }
 
-        memcpy(frame.payload, &((uint8_t *)buf)[i * MESSAGING_SERVICE_MAX_PAYLOAD_SIZE_BYTES], frag_size_bytes);
+        memcpy(frame.payload, &((uint8_t *)data)[i * MESSAGING_SERVICE_MAX_PAYLOAD_SIZE_BYTES], frag_size_bytes);
         int ret = prv_write_frame(&frame, sizeof(messaging_service_frame_header_t) + frag_size_bytes);
 
         if (ret != 0) {
@@ -436,16 +453,19 @@ int messaging_service_write(const void *buf, size_t len_bytes)
         }
     }
 
+    LOG_INF("Successfully forwarded message!");
+
     return 0;
 }
 
-int messaging_service_register_on_payload_frame(messaging_service_on_payload_frame_callback_t *callback)
+int messaging_service_register_rx_callback(endpoint_transport_rx_cb_t callback)
 {
-    if (callback == NULL || callback->callback == NULL) {
+    if (callback == NULL) {
         return -EINVAL;
     }
 
-    prv_inst.callbacks.on_payload_frame_cb = callback;
+    prv_inst.rx_callback = callback;
 
     return 0;
 }
+

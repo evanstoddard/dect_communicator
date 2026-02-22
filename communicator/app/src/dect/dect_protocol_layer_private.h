@@ -28,7 +28,7 @@ extern "C" {
 
 /**
  * @typedef dect_protocol_layer_header_t
- * @brief [TODO:description]
+ * @brief Protocol layer fragment header prepended to each transmitted fragment
  *
  */
 typedef struct dect_protocol_layer_header_t {
@@ -43,7 +43,7 @@ typedef struct dect_protocol_layer_header_t {
 
 /**
  * @typedef dect_protocol_layer_fragment_t
- * @brief [TODO:description]
+ * @brief Protocol layer fragment containing a header and payload buffer
  *
  */
 typedef struct dect_protocol_layer_fragment_t {

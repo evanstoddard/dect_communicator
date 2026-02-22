@@ -10,10 +10,14 @@
 
 #include "ble_core.h"
 
+#include <stdio.h>
+
 #include <zephyr/logging/log.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
+
+#include "utils/device_id.h"
 
 /*****************************************************************************
  * Definitions
@@ -26,11 +30,16 @@ LOG_MODULE_REGISTER(ble_core);
  *****************************************************************************/
 
 /**
+ * @brief BLE Device Name
+ */
+static char prv_device_name[16];
+
+/**
  * @brief BLE Advertising Data
  */
-static const struct bt_data prv_ad_data[] = {
+static struct bt_data prv_ad_data[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-    BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+    {0},
 };
 
 static struct {
@@ -42,9 +51,9 @@ static struct {
  *****************************************************************************/
 
 /**
- * @brief [TODO:description]
+ * @brief Work handler that starts BLE advertising
  *
- * @param work [TODO:parameter]
+ * @param work Pointer to the work item
  */
 static void prv_advertising_work_handler(struct k_work *work)
 {
@@ -97,12 +106,17 @@ BT_CONN_CB_DEFINE(prv_conn_callbacks) = {
  *****************************************************************************/
 
 /**
- * @brief [TODO:description]
+ * @brief Initialize BLE core, enable Bluetooth, and start advertising
  *
- * @return [TODO:return]
+ * @return 0 on success, negative errno on failure
  */
 int ble_core_init(void)
 {
+    int len = snprintf(prv_device_name, sizeof(prv_device_name), "DECT-%u", device_id());
+    prv_ad_data[1].type = BT_DATA_NAME_COMPLETE;
+    prv_ad_data[1].data_len = len;
+    prv_ad_data[1].data = (const uint8_t *)prv_device_name;
+
     int ret = bt_enable(NULL);
     if (ret) {
         LOG_ERR("Bluetooth init failed: %d", ret);

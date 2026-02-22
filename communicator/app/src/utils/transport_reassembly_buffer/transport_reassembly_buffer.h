@@ -50,13 +50,16 @@ typedef void (*transport_reassem_buffer_ctx_allocated_cb_t)(const struct transpo
 
 /**
  * @typedef transport_reassem_ctx_t
- * @brief [TODO:description]
+ * @brief Base reassembly context tracking the state of an in-progress fragmented transfer
  *
  */
 typedef struct transport_reassem_ctx_t {
     transport_reassembly_ctx_state_t state;
 
     uint32_t transport_id;
+
+    uint16_t src_id;
+    uint16_t dst_id;
 
     uint32_t last_rx_ms;
     uint16_t seq_id;
@@ -68,7 +71,7 @@ typedef struct transport_reassem_ctx_t {
 
 /**
  * @typedef transport_reassem_buffer_params_t
- * @brief [TODO:description]
+ * @brief Configuration parameters for initializing a transport reassembly buffer
  *
  */
 typedef struct transport_reassem_buffer_params_t {
@@ -85,7 +88,7 @@ typedef struct transport_reassem_buffer_params_t {
 
 /**
  * @typedef transport_reassem_buffer_t
- * @brief [TODO:description]
+ * @brief Transport reassembly buffer managing multiple reassembly contexts and their backing buffers
  *
  */
 typedef struct transport_reassem_buffer_t {
@@ -99,35 +102,34 @@ typedef struct transport_reassem_buffer_t {
  *****************************************************************************/
 
 /**
- * @brief [TODO:description]
+ * @brief Initialize a transport reassembly buffer
  *
- * @param reassem_buffer [TODO:parameter]
- * @param buffer_pool [TODO:parameter]
- * @param reassem_contexts [TODO:parameter]
- * @param params [TODO:parameter]
- * @return [TODO:return]
+ * @param reassem_buffer Pointer to the reassembly buffer to initialize
+ * @param buffer_pool Pointer to the net_buf pool backing reassembly contexts
+ * @param reassem_contexts Pointer to the array of reassembly contexts
+ * @param params Pointer to configuration parameters
+ * @return 0 on success, -EINVAL on invalid arguments
  */
 int transport_reassem_buffer_init(transport_reassem_buffer_t *reassem_buffer, struct net_buf_pool *buffer_pool,
                                   void *reassem_contexts, transport_reassem_buffer_params_t *params);
 
 /**
- * @brief [TODO:description]
+ * @brief Get or allocate a reassembly context matching the given input
  *
- * @param reaseem_buffer [TODO:parameter]
- * @param intput [TODO:parameter]
- * @return [TODO:return]
+ * @param reaseem_buffer Pointer to the reassembly buffer
+ * @param input Pointer to transport-specific input data used for matching
+ * @return Pointer to the matching or newly allocated context, or NULL if unavailable
  */
 transport_reassem_ctx_t *transport_reassem_buffer_get_context(transport_reassem_buffer_t *reaseem_buffer, void *input,
                                                               uint8_t frag_idx);
 
 /**
- * @brief [TODO:description]
+ * @brief net_buf destroy callback that resets the reassembly context state.
+ *        Pass this to NET_BUF_POOL_DEFINE as the destroy callback.
  *
- * @param buffer [TODO:parameter]
- * @param context [TODO:parameter]
- * @return [TODO:return]
+ * @param buf Pointer to net_buf being destroyed
  */
-int transport_reassem_buffer_release_buffer(transport_reassem_buffer_t *buffer, transport_reassem_ctx_t *context);
+void transport_reassem_net_buf_destroy(struct net_buf *buf);
 
 #ifdef __cplusplus
 }

@@ -3,13 +3,15 @@
  */
 
 /**
- * @file transport_ids.h
+ * @file device_id.h
  * @author Evan Stoddard
  * @brief
  */
 
-#ifndef transport_ids_h
-#define transport_ids_h
+#ifndef device_id_h
+#define device_id_h
+
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,16 +25,13 @@ extern "C" {
  * Structs, Unions, Enums, & Typedefs
  *****************************************************************************/
 
-typedef enum {
-    ENDPOINT_TRANSPORT_ID_DECT,
-    ENDPOINT_TRANSPORT_ID_BLE,
-} endpoint_transport_id_t;
-
 /*****************************************************************************
  * Function Prototypes
  *****************************************************************************/
 
+uint16_t device_id(void);
+
 #ifdef __cplusplus
 }
 #endif
-#endif /* transport_ids_h */
+#endif /* device_id_h */

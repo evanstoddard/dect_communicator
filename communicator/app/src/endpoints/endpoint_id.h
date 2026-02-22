@@ -3,13 +3,13 @@
  */
 
 /**
- * @file messaging_endpoint.h
+ * @file endpoint_id.h
  * @author Evan Stoddard
  * @brief
  */
 
-#ifndef messaging_endpoint_h
-#define messaging_endpoint_h
+#ifndef endpoint_id_h
+#define endpoint_id_h
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,18 +23,15 @@ extern "C" {
  * Structs, Unions, Enums, & Typedefs
  *****************************************************************************/
 
+typedef enum {
+    ENDPOINT_ID_MESSAGING_ENDPOINT,
+} endpoint_id_t;
+
 /*****************************************************************************
  * Function Prototypes
  *****************************************************************************/
 
-/**
- * @brief Initialize messaging endpoint
- *
- * @return 0 on success, -EALREADY if already initialized
- */
-int messaging_endpoint_init(void);
-
 #ifdef __cplusplus
 }
 #endif
-#endif /* messaging_endpoint_h */
+#endif /* endpoint_id_h */

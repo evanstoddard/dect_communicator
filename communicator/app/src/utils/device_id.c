@@ -3,38 +3,42 @@
  */
 
 /**
- * @file messaging_endpoint.h
+ * @file device_id.c
  * @author Evan Stoddard
  * @brief
  */
 
-#ifndef messaging_endpoint_h
-#define messaging_endpoint_h
+#include "device_id.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdbool.h>
+
+#include <zephyr/drivers/hwinfo.h>
 
 /*****************************************************************************
  * Definitions
  *****************************************************************************/
 
 /*****************************************************************************
- * Structs, Unions, Enums, & Typedefs
+ * Variables
  *****************************************************************************/
 
 /*****************************************************************************
- * Function Prototypes
+ * Prototypes
  *****************************************************************************/
 
-/**
- * @brief Initialize messaging endpoint
- *
- * @return 0 on success, -EALREADY if already initialized
- */
-int messaging_endpoint_init(void);
+/*****************************************************************************
+ * Functions
+ *****************************************************************************/
 
-#ifdef __cplusplus
+uint16_t device_id(void)
+{
+    static bool fetched = false;
+    static uint16_t id = 0;
+
+    if (fetched == false) {
+        hwinfo_get_device_id((void *)&id, sizeof(id));
+        fetched = true;
+    }
+
+    return id;
 }
-#endif
-#endif /* messaging_endpoint_h */

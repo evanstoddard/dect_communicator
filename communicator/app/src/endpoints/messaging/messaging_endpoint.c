@@ -18,9 +18,10 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/shell/shell.h>
 
-#include "ble/services/messaging/messaging_service.h"
-
 #include "messaging_endpoint_protocol.h"
+
+#include "endpoints/endpoint_id.h"
+#include "endpoints/endpoint_router.h"
 
 /*****************************************************************************
  * Definitions
@@ -42,10 +43,8 @@ static struct {
     struct k_thread thread;
     k_tid_t thread_id;
 
-    // TODO: Can this be better generalized into an "upstream"/"downstream" channeling pattern?  What if our "upstream"
-    // is not BLE or we have multiple "upstreams?"
-    struct k_fifo from_ble_fifo;
-    struct k_fifo from_dect_fifo;
+    struct k_fifo from_upstream_rx_fifo;
+    struct k_fifo from_downstream_rx_fifo;
 } prv_inst;
 
 K_THREAD_STACK_DEFINE(prv_messaging_endpoint_thread_stack, MESSAGING_ENDPOINT_STACK_SIZE_BYTES);
@@ -55,58 +54,114 @@ K_THREAD_STACK_DEFINE(prv_messaging_endpoint_thread_stack, MESSAGING_ENDPOINT_ST
  *****************************************************************************/
 
 /**
- * @brief [TODO:description]
+ * @brief Callback for messages received from upstream (BLE/phone side)
  *
- * @param buf [TODO:parameter]
- * @param user_data [TODO:parameter]
+ * @param src_id Source device ID of the sender
+ * @param ctx Pointer to the reassembly context containing the received data
+ * @return 0 on success
  */
-static void prv_on_ble_rx(struct net_buf *buf, void *user_data)
+static int prv_on_from_upstream(uint16_t src_id, transport_reassem_ctx_t *ctx)
 {
-    k_fifo_put(&prv_inst.from_ble_fifo, buf);
+    struct net_buf *ref __unused = net_buf_ref(ctx->buffer);
+    k_fifo_put(&prv_inst.from_upstream_rx_fifo, ctx);
+
+    return 0;
 }
 
 /**
- * @brief [TODO:description]
- */
-static void prv_handle_rx_from_ble(void)
-{
-    messaging_endpoint_header_t *header = (messaging_endpoint_header_t *)k_fifo_get(&prv_inst.from_ble_fifo, K_NO_WAIT);
-
-    LOG_INF("Received BLE message with msg ID of: 0x%02X", header->msg_type);
-}
-
-/**
- * @brief [TODO:description]
- */
-static void prv_handle_rx_from_dect(void)
-{
-}
-
-/**
- * @brief [TODO:description]
+ * @brief Callback for messages received from downstream (DECT NR+ radio side)
  *
- * @param arg1 [TODO:parameter]
- * @param arg2 [TODO:parameter]
- * @param arg3 [TODO:parameter]
+ * @param src_id Source device ID of the sender
+ * @param ctx Pointer to the reassembly context containing the received data
+ * @return 0 on success
+ */
+static int prv_on_from_downstream(uint16_t src_id, transport_reassem_ctx_t *ctx)
+{
+    struct net_buf *ref __unused = net_buf_ref(ctx->buffer);
+    k_fifo_put(&prv_inst.from_downstream_rx_fifo, ctx);
+
+    return 0;
+}
+
+/**
+ * @brief Process a queued message from upstream and forward to downstream (DECT)
+ */
+static void prv_handle_rx_from_upstream(void)
+{
+    transport_reassem_ctx_t *ctx = k_fifo_get(&prv_inst.from_upstream_rx_fifo, K_NO_WAIT);
+    if (ctx == NULL) {
+        return;
+    }
+
+    LOG_HEXDUMP_INF(ctx->buffer->data, ctx->buffer->len, "Received message from upstream:");
+
+    if (ctx->buffer->len < sizeof(messaging_endpoint_header_t)) {
+        LOG_WRN("Message too small.");
+        goto release;
+    }
+
+    messaging_endpoint_header_t *header = (messaging_endpoint_header_t *)ctx->buffer->data;
+
+    if (header->msg_type == MESSAGING_ENDPOINT_MSG_TYPE_TEXT) {
+        if (ctx->buffer->len
+            < sizeof(messaging_endpoint_header_t) + sizeof(messaging_endpoint_text_message_metadata_t)) {
+            LOG_WRN("Text message too small.");
+            goto release;
+        }
+
+        messaging_endpoint_text_message_t *msg = (messaging_endpoint_text_message_t *)ctx->buffer->data;
+
+        endpoint_router_write_to_downstream(msg->meta.dst_id, ENDPOINT_ID_MESSAGING_ENDPOINT, ctx->buffer->data,
+                                            ctx->buffer->len);
+    }
+
+release:
+    net_buf_unref(ctx->buffer);
+}
+
+/**
+ * @brief Process a queued message from downstream and forward to upstream (BLE/phone)
+ */
+static void prv_handle_rx_from_downstream(void)
+{
+    transport_reassem_ctx_t *ctx = k_fifo_get(&prv_inst.from_downstream_rx_fifo, K_NO_WAIT);
+    if (ctx == NULL) {
+        return;
+    }
+
+    LOG_HEXDUMP_INF(ctx->buffer->data, ctx->buffer->len, "Received message from downstream:");
+
+    // Forward to upstream (BLE → phone)
+    endpoint_router_write_to_upstream(ctx->dst_id, ENDPOINT_ID_MESSAGING_ENDPOINT, ctx->buffer->data, ctx->buffer->len);
+
+    net_buf_unref(ctx->buffer);
+}
+
+/**
+ * @brief Messaging endpoint processing thread
+ *
+ * @param arg1 Unused
+ * @param arg2 Unused
+ * @param arg3 Unused
  */
 static void prv_thread(void *arg1, void *arg2, void *arg3)
 {
     static struct k_poll_event events[] = {
         K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE, K_POLL_MODE_NOTIFY_ONLY,
-                                        &prv_inst.from_ble_fifo, 0),
+                                        &prv_inst.from_upstream_rx_fifo, 0),
         K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE, K_POLL_MODE_NOTIFY_ONLY,
-                                        &prv_inst.from_dect_fifo, 0),
+                                        &prv_inst.from_downstream_rx_fifo, 0),
     };
 
     while (true) {
         k_poll(events, ARRAY_SIZE(events), K_FOREVER);
 
         if (events[0].state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
-            prv_handle_rx_from_ble();
+            prv_handle_rx_from_upstream();
         }
 
         if (events[1].state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
-            prv_handle_rx_from_dect();
+            prv_handle_rx_from_downstream();
         }
 
         // Reset states
@@ -125,17 +180,20 @@ int messaging_endpoint_init(void)
         return -EALREADY;
     }
 
-    k_fifo_init(&prv_inst.from_ble_fifo);
-    k_fifo_init(&prv_inst.from_dect_fifo);
-
-    static messaging_service_on_payload_frame_callback_t ble_rx_frame_cb = {.callback = prv_on_ble_rx,
-                                                                            .user_ctx = NULL};
-
-    messaging_service_register_on_payload_frame(&ble_rx_frame_cb);
+    k_fifo_init(&prv_inst.from_upstream_rx_fifo);
+    k_fifo_init(&prv_inst.from_downstream_rx_fifo);
 
     prv_inst.thread_id = k_thread_create(&prv_inst.thread, prv_messaging_endpoint_thread_stack,
                                          K_THREAD_STACK_SIZEOF(prv_messaging_endpoint_thread_stack), prv_thread, NULL,
                                          NULL, NULL, MESSAGING_ENDPOINT_THREAD_PRIORITY, 0, K_NO_WAIT);
+
+    static endpoint_t endpoint = {
+        .endpoint_id = ENDPOINT_ID_MESSAGING_ENDPOINT,
+        .on_from_upstream = prv_on_from_upstream,
+        .on_from_downstream = prv_on_from_downstream,
+    };
+
+    endpoint_router_register_endpoint(&endpoint);
 
     prv_inst.initialized = true;
 

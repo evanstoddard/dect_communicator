@@ -13,7 +13,7 @@
 
 #include "messaging_service_protocol.h"
 
-#include <zephyr/net_buf.h>
+#include "endpoints/endpoint_transport.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,34 +27,35 @@ extern "C" {
  * Structs, Unions, Enums, & Typedefs
  *****************************************************************************/
 
-/**
- * @typedef messaging_service_on_payload_frame_callback_t
- * @brief [TODO:description]
- *
- */
-typedef struct messaging_service_on_payload_frame_callback_t {
-    void (*callback)(struct net_buf *net_buf, void *user_ctx);
-    void *user_ctx;
-} messaging_service_on_payload_frame_callback_t;
-
 /*****************************************************************************
  * Function Prototypes
  *****************************************************************************/
 
 /**
- * @brief [TODO:description]
+ * @brief Initialize the BLE messaging service and register its transport with the endpoint router
  *
- * @return [TODO:return]
+ * @return 0 on success, negative errno on failure
  */
 int messaging_service_init(void);
 
 /**
- * @brief [TODO:description]
+ * @brief Write data to a connected BLE client via the messaging service GATT characteristic
  *
- * @param callback [TODO:parameter]
- * @return [TODO:return]
+ * @param dst_id Destination device ID (unused, BLE writes to connected client)
+ * @param endpoint_id Target endpoint ID (must be ENDPOINT_ID_MESSAGING_ENDPOINT)
+ * @param data Pointer to data to send
+ * @param len_bytes Length of data in bytes
+ * @return 0 on success, negative errno on failure
  */
-int messaging_service_register_on_payload_frame(messaging_service_on_payload_frame_callback_t *callback);
+int messaging_service_write(uint16_t dst_id, uint8_t endpoint_id, const void *data, const size_t len_bytes);
+
+/**
+ * @brief Register a callback for messages received from the BLE client
+ *
+ * @param callback Callback invoked when a complete message is received
+ * @return 0 on success, -EINVAL if callback is NULL
+ */
+int messaging_service_register_rx_callback(endpoint_transport_rx_cb_t callback);
 
 #ifdef __cplusplus
 }

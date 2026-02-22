@@ -8,7 +8,7 @@
  * @brief
  */
 
-#include "dect_data_layer.h"
+#include "dect_protocol_layer.h"
 #include "dect_protocol_layer_private.h"
 
 #include <stdint.h>
@@ -24,9 +24,11 @@
 
 #include <zephyr/random/random.h>
 
+#include "dect_data_layer.h"
+
 #include "utils/transport_reassembly_buffer/transport_reassembly_buffer.h"
 
-#include "endpoints/transport_ids.h"
+#include "endpoints/endpoint_transport.h"
 
 /*****************************************************************************
  * Definitions
@@ -57,7 +59,7 @@ typedef enum {
 
 /**
  * @typedef dect_protocol_layer_reassem_buf_input_t
- * @brief [TODO:description]
+ * @brief Input data passed to the reassembly buffer for matching and context allocation
  *
  */
 typedef struct dect_protocol_layer_reassem_buf_input_t {
@@ -72,7 +74,6 @@ typedef struct dect_protocol_layer_reassem_buf_input_t {
  */
 typedef struct dect_protocol_layer_reassem_ctx_t {
     transport_reassem_ctx_t base_ctx;
-    uint16_t src_id;
     uint8_t frame_type;
     uint8_t endpoint_id;
 } dect_protocol_layer_reassem_ctx_t;
@@ -89,12 +90,16 @@ static struct {
 
     transport_reassem_buffer_t reassem_buf;
 
+    endpoint_transport_t transport;
+
+    endpoint_transport_rx_cb_t rx_callback;
+
     struct k_sem ack_sem;
 } prv_inst;
 
 NET_BUF_POOL_DEFINE(prv_rx_buf_pool, CONFIG_DECT_PROTO_MAX_REASSEM_CONTEXTS,
                     (CONFIG_DECT_PROTO_MAX_FRAGMENTS_PER_CONTEXT * CONFIG_DECT_PROTO_MAX_FRAGMENT_SIZE_BYTES),
-                    sizeof(uintptr_t), NULL);
+                    sizeof(uintptr_t), transport_reassem_net_buf_destroy);
 
 /*****************************************************************************
  * Private Functions
@@ -134,10 +139,10 @@ static bool prv_validate_fragment_header(const dect_protocol_layer_reassem_ctx_t
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Send an ACK for a received fragment back to the sender
  *
- * @param ctx [TODO:parameter]
- * @param fragment [TODO:parameter]
+ * @param ctx Pointer to the reassembly context for this transfer
+ * @param fragment Pointer to the fragment being acknowledged
  */
 static void prv_ack_fragment(const dect_protocol_layer_reassem_ctx_t *ctx,
                              const dect_protocol_layer_fragment_t *fragment)
@@ -146,21 +151,25 @@ static void prv_ack_fragment(const dect_protocol_layer_reassem_ctx_t *ctx,
 
     ack.header.frame_type = DECT_PROTOCOL_LAYER_FRAME_TYPE_ACK;
 
-    int ret = dect_data_layer_write(ctx->src_id, &ack, sizeof(dect_protocol_layer_header_t));
+    int ret = dect_data_layer_write(ctx->base_ctx.src_id, &ack, sizeof(dect_protocol_layer_header_t));
     if (ret != 0) {
         LOG_ERR("Failed to write ACK: %d", ret);
     }
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Handle a fully reassembled protocol layer message
  *
- * @param ctx [TODO:parameter]
+ * @param ctx Pointer to the completed reassembly context
  */
 static void prv_handle_complete_protocol_message(dect_protocol_layer_reassem_ctx_t *ctx)
 {
     // TODO: A majority of this should be refactored into the transport reassembly module
     ctx->base_ctx.state = TRANSPORT_REASSEMBLY_CTX_STATE_IN_USE;
+
+    if (prv_inst.rx_callback != NULL) {
+        prv_inst.rx_callback(ctx->base_ctx.src_id, ctx->endpoint_id, (transport_reassem_ctx_t *)ctx);
+    }
 }
 
 /**
@@ -208,12 +217,12 @@ static void prv_writing_incoming_fragment(dect_protocol_layer_reassem_ctx_t *ctx
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Data layer RX callback handling incoming protocol layer frames
  *
- * @param src_id [TODO:parameter]
- * @param data [TODO:parameter]
- * @param len_bytes [TODO:parameter]
- * @param ctx [TODO:parameter]
+ * @param src_id Source device ID of the sender
+ * @param data Pointer to received data
+ * @param len_bytes Length of received data in bytes
+ * @param ctx User context (unused)
  */
 static void prv_on_data_layer_rx(const uint16_t src_id, const void *data, const size_t len_bytes, void *ctx)
 {
@@ -249,12 +258,12 @@ static void prv_on_data_layer_rx(const uint16_t src_id, const void *data, const 
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Write a single fragment with ACK-based retransmission
  *
- * @param dst_id
- * @param fragment [TODO:parameter]
- * @param payload_size
- * @return [TODO:return]
+ * @param dst_id Destination device ID
+ * @param fragment Pointer to the fragment to transmit
+ * @param payload_size Size of the fragment payload in bytes
+ * @return 0 on success, negative errno on failure or timeout
  */
 static int prv_write_fragment(const uint16_t dst_id, const dect_protocol_layer_fragment_t *fragment,
                               size_t payload_size)
@@ -281,12 +290,12 @@ static int prv_write_fragment(const uint16_t dst_id, const dect_protocol_layer_f
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Reassembly buffer match callback to find an existing context for an incoming fragment
  *
- * @param inst [TODO:parameter]
- * @param ctx [TODO:parameter]
- * @param input [TODO:parameter]
- * @return [TODO:return]
+ * @param inst Pointer to the reassembly buffer instance
+ * @param ctx Pointer to the reassembly context being checked
+ * @param input Pointer to the incoming fragment input data
+ * @return true if the context matches the incoming fragment
  */
 static bool prv_reassem_match_callback(const struct transport_reassem_buffer_t *inst,
                                        const struct transport_reassem_ctx_t *ctx, const void *input)
@@ -298,7 +307,7 @@ static bool prv_reassem_match_callback(const struct transport_reassem_buffer_t *
         return false;
     }
 
-    if (context->src_id != _input->src_id) {
+    if (context->base_ctx.src_id != _input->src_id) {
         return false;
     }
 
@@ -306,11 +315,11 @@ static bool prv_reassem_match_callback(const struct transport_reassem_buffer_t *
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Callback invoked when a new reassembly context is allocated for an incoming fragment
  *
- * @param reassem_buf [TODO:parameter]
- * @param reassem_ctx [TODO:parameter]
- * @param input [TODO:parameter]
+ * @param reassem_buf Pointer to the reassembly buffer instance
+ * @param reassem_ctx Pointer to the newly allocated reassembly context
+ * @param input Pointer to the incoming fragment input data
  */
 static void prv_context_allocated_callback(const struct transport_reassem_buffer_t *reassem_buf,
                                            struct transport_reassem_ctx_t *reassem_ctx, void *input)
@@ -318,15 +327,13 @@ static void prv_context_allocated_callback(const struct transport_reassem_buffer
     dect_protocol_layer_reassem_ctx_t *context = (dect_protocol_layer_reassem_ctx_t *)reassem_ctx;
     dect_protocol_layer_reassem_buf_input_t *_input = (dect_protocol_layer_reassem_buf_input_t *)input;
 
-    context->src_id = _input->src_id;
+    context->base_ctx.src_id = _input->src_id;
     context->endpoint_id = _input->fragment->header.endpoint_id;
     context->frame_type = _input->fragment->header.frame_type;
 
     context->base_ctx.seq_id = _input->fragment->header.seq_id;
     context->base_ctx.frag_total = _input->fragment->header.frag_total;
     context->base_ctx.frag_idx = 0;
-
-    context->base_ctx.transport_id = ENDPOINT_TRANSPORT_ID_DECT;
 }
 
 /*****************************************************************************
@@ -357,6 +364,15 @@ int dect_protocol_layer_init(void)
         LOG_ERR("Failed to intialize reassembly buffer: %d", ret);
         return ret;
     }
+
+    prv_inst.transport =
+        (endpoint_transport_t){.type = ENDPOINT_TRANSPORT_TYPE_DOWNSTREAM,
+                               .medium = ENDPOINT_TRANSPORT_MEDIUM_DECT,
+                               .api = {
+                                   .transport_register_rx_cb = dect_protocol_layer_register_rx_callback,
+                                   .transport_write = dect_protocol_layer_write_endpoint_frame,
+                               }};
+    endpoint_router_register_transport(&prv_inst.transport);
 
     prv_inst.initialized = true;
 
@@ -399,6 +415,21 @@ int dect_protocol_layer_write(const uint16_t dst_id, const uint8_t frame_type, c
         }
     }
 
+    return 0;
+}
+
+int dect_protocol_layer_write_endpoint_frame(uint16_t dst_id, uint8_t endpoint_id, const void *data, size_t len_bytes)
+{
+    return dect_protocol_layer_write(dst_id, DECT_PROTOCOL_LAYER_FRAME_TYPE_ENDPOINT, endpoint_id, data, len_bytes);
+}
+
+int dect_protocol_layer_register_rx_callback(endpoint_transport_rx_cb_t callback)
+{
+    if (callback == NULL) {
+        return -EINVAL;
+    }
+
+    prv_inst.rx_callback = callback;
     return 0;
 }
 

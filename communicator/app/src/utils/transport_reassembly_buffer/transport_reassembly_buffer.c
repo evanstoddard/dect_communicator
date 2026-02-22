@@ -29,11 +29,11 @@ LOG_MODULE_REGISTER(transport_reassem_buffer);
  *****************************************************************************/
 
 /**
- * @brief [TODO:description]
+ * @brief Get a reassembly context pointer by index into the context array
  *
- * @param inst [TODO:parameter]
- * @param index [TODO:parameter]
- * @return [TODO:return]
+ * @param inst Pointer to the reassembly buffer instance
+ * @param index Index of the context to retrieve
+ * @return Pointer to the context, or NULL if index is out of bounds
  */
 static transport_reassem_ctx_t *prv_context_for_index(const transport_reassem_buffer_t *inst, size_t index)
 {
@@ -47,9 +47,9 @@ static transport_reassem_ctx_t *prv_context_for_index(const transport_reassem_bu
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Initialize all reassembly contexts to the free state
  *
- * @param inst [TODO:parameter]
+ * @param inst Pointer to the reassembly buffer instance
  */
 static void prv_initialize_reassembly_contexts(const transport_reassem_buffer_t *inst)
 {
@@ -83,6 +83,8 @@ int transport_reassem_buffer_init(transport_reassem_buffer_t *reassem_buffer, st
     reassem_buffer->buffer_pool = buffer_pool;
     reassem_buffer->contexts = reassem_contexts;
     reassem_buffer->params = *params;
+
+    prv_initialize_reassembly_contexts(reassem_buffer);
 
     return 0;
 }
@@ -148,18 +150,9 @@ transport_reassem_ctx_t *transport_reassem_buffer_get_context(transport_reassem_
     return NULL;
 }
 
-int transport_reassem_buffer_release_buffer(transport_reassem_buffer_t *buffer, transport_reassem_ctx_t *context)
+void transport_reassem_net_buf_destroy(struct net_buf *buf)
 {
-    if (buffer == NULL || context == NULL) {
-        return -EINVAL;
-    }
-
-    if (context->state != TRANSPORT_REASSEMBLY_CTX_STATE_IN_USE) {
-        return -EINVAL;
-    }
-
-    net_buf_unref(context->buffer);
-    context->state = TRANSPORT_REASSEMBLY_CTX_STATE_FREE;
-
-    return 0;
+    transport_reassem_ctx_t *ctx = *(transport_reassem_ctx_t **)net_buf_user_data(buf);
+    net_buf_destroy(buf);
+    ctx->state = TRANSPORT_REASSEMBLY_CTX_STATE_FREE;
 }

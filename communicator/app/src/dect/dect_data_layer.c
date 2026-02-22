@@ -17,8 +17,6 @@
 
 #include <zephyr/kernel.h>
 
-#include <zephyr/drivers/hwinfo.h>
-
 #include <zephyr/logging/log.h>
 #include <zephyr/shell/shell.h>
 
@@ -26,6 +24,8 @@
 #include <modem/nrf_modem_lib.h>
 
 #include "dect_data_layer_private.h"
+
+#include "utils/device_id.h"
 
 /*****************************************************************************
  * Definitions
@@ -69,8 +69,6 @@ static struct {
 
     dect_data_layer_tx_obj_t tx_queue_buf[DECT_DATA_LAYER_TX_MSG_QUEUE_DEPTH];
     struct k_msgq tx_queue;
-
-    uint16_t device_id;
 
     volatile bool op_failed;
     volatile bool op_cancelled;
@@ -162,9 +160,9 @@ static void prv_on_phy_activated(const struct nrf_modem_dect_phy_activate_event 
 }
 
 /**
- * @brief [TODO:description]
+ * @brief Event handler for PHY physical data channel (PDC) reception
  *
- * @param event [TODO:parameter]
+ * @param event Pointer to PDC event containing received data
  */
 static void prv_on_phy_pdc_event(const struct nrf_modem_dect_phy_pdc_event *event)
 {
@@ -180,7 +178,7 @@ static void prv_on_phy_pdc_event(const struct nrf_modem_dect_phy_pdc_event *even
     }
 
     // Check if frame is for us
-    if (frame->header.dst_id != prv_inst.device_id) {
+    if (frame->header.dst_id != device_id()) {
         return;
     }
 
@@ -372,8 +370,8 @@ static int prv_data_layer_write_frame(const dect_data_layer_tx_obj_t *tx_obj)
                                            .packet_length_type = 0x0,
                                            .packet_length = 0x01,
                                            .short_network_id = (CONFIG_NETWORK_ID & 0xFF),
-                                           .transmitter_id_hi = (prv_inst.device_id >> 8),
-                                           .transmitter_id_lo = (prv_inst.device_id & 0xFF),
+                                           .transmitter_id_hi = (device_id() >> 8),
+                                           .transmitter_id_lo = (device_id() & 0xFF),
                                            .transmit_power = CONFIG_TX_POWER,
                                            .reserved = 0,
                                            .df_mcs = CONFIG_MCS};
@@ -455,8 +453,6 @@ int dect_data_layer_init(void)
         return -EALREADY;
     }
 
-    hwinfo_get_device_id((void *)&prv_inst.device_id, sizeof(prv_inst.device_id));
-
     k_msgq_init(&prv_inst.tx_queue, (char *)prv_inst.tx_queue_buf, DECT_DATA_LAYER_MAX_PAYLOAD_SIZE_BYTES,
                 DECT_DATA_LAYER_TX_MSG_QUEUE_DEPTH);
 
@@ -514,7 +510,7 @@ int dect_data_layer_write(const uint16_t dst_id, const void *buf, const size_t b
         return -ENOMEM;
     }
 
-    dect_data_layer_tx_obj_t tx_obj = {.frame.header = {.src_id = prv_inst.device_id,
+    dect_data_layer_tx_obj_t tx_obj = {.frame.header = {.src_id = device_id(),
                                                         .dst_id = dst_id,
                                                         .magic = DECT_DATA_LAYER_HEADER_MAGIC,
                                                         .version = 1,
@@ -576,7 +572,7 @@ static int prv_shell_cmd_write(const struct shell *shell, size_t argc, char **ar
  */
 static int prv_shell_cmd_get_device_id(const struct shell *shell, size_t argc, char **argv)
 {
-    shell_print(shell, "Device ID is: %u", prv_inst.device_id);
+    shell_print(shell, "Device ID is: %u", device_id());
 
     return 0;
 }
