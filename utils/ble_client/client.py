@@ -50,6 +50,7 @@ class MessagingClient:
         self._ack_event = asyncio.Event()
         self._on_message: Optional[Callable[[TextMessage], None]] = None
         self._on_connection_change: Optional[Callable[[bool], None]] = None
+        self._on_error: Optional[Callable[[str], None]] = None
         self._scan_results: list[BLEDevice] = []
         self._max_frame_payload = MAX_FRAME_PAYLOAD
 
@@ -65,9 +66,11 @@ class MessagingClient:
         self,
         on_message: Optional[Callable[[TextMessage], None]] = None,
         on_connection_change: Optional[Callable[[bool], None]] = None,
+        on_error: Optional[Callable[[str], None]] = None,
     ):
         self._on_message = on_message
         self._on_connection_change = on_connection_change
+        self._on_error = on_error
 
     async def scan(self, timeout: float = 5.0) -> list[BLEDevice]:
         devices = await BleakScanner.discover(timeout=timeout)
@@ -176,8 +179,10 @@ class MessagingClient:
         try:
             msg = TextMessage.unpack(data)
             self._on_message(msg)
-        except Exception:
+        except Exception as e:
             logger.error("Failed to parse incoming message", exc_info=True)
+            if self._on_error:
+                self._on_error(f"Failed to parse message ({len(data)} bytes): {e}")
 
     # ------------------------------------------------------------------
     # Public: send

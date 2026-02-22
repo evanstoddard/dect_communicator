@@ -63,6 +63,7 @@ class MessagingApp(App):
         self.client.set_callbacks(
             on_message=self._on_ble_message,
             on_connection_change=self._on_ble_connection_change,
+            on_error=self._on_ble_error,
         )
         self.dst_id = 1
 
@@ -90,6 +91,13 @@ class MessagingApp(App):
     def _log(self, text: str):
         ts = datetime.now().strftime("%H:%M:%S")
         self.query_one("#message-log", RichLog).write(f"[dim]{ts}[/dim] {text}")
+
+    def _safe_call(self, fn, *args):
+        """Call fn from any thread — works from both the app thread and workers."""
+        try:
+            self.call_from_thread(fn, *args)
+        except RuntimeError:
+            fn(*args)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -221,22 +229,27 @@ class MessagingApp(App):
     # ------------------------------------------------------------------
     def _on_ble_message(self, msg: TextMessage):
         uuid_short = msg.msg_uuid.hex()[:8]
-        self.call_from_thread(
+        self._safe_call(
             self._log,
             f"[magenta]RX ←[/magenta] {escape(msg.text)}  "
             f"[dim](dst:{msg.dst_id} id:{uuid_short})[/dim]",
         )
 
+    def _on_ble_error(self, error: str):
+        self._safe_call(
+            self._log, f"[red]BLE error: {escape(error)}[/red]"
+        )
+
     def _on_ble_connection_change(self, connected: bool):
         if connected:
-            self.call_from_thread(
+            self._safe_call(
                 self._log, "[green]Device connected.[/green]"
             )
         else:
-            self.call_from_thread(
+            self._safe_call(
                 self._log, "[yellow]Device disconnected.[/yellow]"
             )
-        self.call_from_thread(self._update_status)
+        self._safe_call(self._update_status)
 
 
 def main():
