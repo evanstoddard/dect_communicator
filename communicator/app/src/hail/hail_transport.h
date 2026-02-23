@@ -16,7 +16,7 @@
 
 #include <zephyr/sys/slist.h>
 
-#include "hail_transport_buffer.h"
+#include "utils/transport_buffer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,7 +38,7 @@ typedef enum {
 struct hail_transport_t;
 
 typedef void (*hail_transport_rx_callback_t)(struct hail_transport_t *transport,
-                                             hail_transport_buffer_t *buffer);
+                                             transport_buffer_t *buffer);
 
 /**
  * @typedef hail_transport_api_t
