@@ -26,15 +26,7 @@ extern "C" {
  * Structs, Unions, Enums, & Typedefs
  *****************************************************************************/
 
-/**
- * @typedef dect_data_layer_rx_handler_t
- * @brief RX handler registered with the data layer to receive incoming frames
- *
- */
-typedef struct dect_data_layer_rx_handler_t {
-    void (*handler)(const uint16_t src_id, const void *buf, const size_t len_bytes, void *ctx);
-    void *ctx;
-} dect_data_layer_rx_handler_t;
+typedef void (*dect_data_layer_rx_cb_t)(const uint16_t src_id, const void *buf, const size_t len_bytes);
 
 /*****************************************************************************
  * Function Prototypes
@@ -60,12 +52,12 @@ int dect_data_layer_init(void);
 int dect_data_layer_write(const uint16_t dst_id, const void *buf, const size_t buf_size_bytes);
 
 /**
- * @brief Register a handler for incoming data layer frames
+ * @brief Register RX callback with data layer. Calling this will overwrite any previously registered callback
  *
- * @param rx_handler Pointer to the RX handler to register
- * @return 0 on success, -EINVAL if rx_handler or its handler function is NULL
+ * @param callback Pointer to callback
+ * @return 0 on success, negative errno on failure
  */
-int dect_data_layer_register_rx_handler(dect_data_layer_rx_handler_t *rx_handler);
+int dect_data_layer_register_rx_callback(dect_data_layer_rx_cb_t callback);
 
 #ifdef __cplusplus
 }

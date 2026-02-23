@@ -18,7 +18,6 @@
 #include <zephyr/kernel.h>
 
 #include <zephyr/logging/log.h>
-#include <zephyr/shell/shell.h>
 
 #include <nrf_modem_dect_phy.h>
 #include <modem/nrf_modem_lib.h>
@@ -81,7 +80,7 @@ static struct {
 
     struct k_sem op_sem;
 
-    dect_data_layer_rx_handler_t *rx_handler;
+    dect_data_layer_rx_cb_t rx_callback;
 } prv_inst;
 
 /**
@@ -434,12 +433,12 @@ static void prv_data_layer_thread(void *arg1, void *arg2, void *arg3)
             continue;
         }
 
-        if (prv_inst.rx_handler == NULL || prv_inst.rx_handler->handler == NULL) {
+        if (prv_inst.rx_callback == NULL) {
             continue;
         }
 
-        prv_inst.rx_handler->handler(prv_inst.rx_frame.header.src_id, prv_inst.rx_frame.payload,
-                                     prv_inst.rx_frame.header.payload_size, prv_inst.rx_handler->ctx);
+        prv_inst.rx_callback(prv_inst.rx_frame.header.src_id, prv_inst.rx_frame.payload,
+                             prv_inst.rx_frame.header.payload_size);
     }
 }
 
@@ -523,69 +522,17 @@ int dect_data_layer_write(const uint16_t dst_id, const void *buf, const size_t b
     return ret;
 }
 
-int dect_data_layer_register_rx_handler(dect_data_layer_rx_handler_t *rx_handler)
+int dect_data_layer_register_rx_callback(dect_data_layer_rx_cb_t callback)
 {
-    if (rx_handler == NULL || rx_handler->handler == NULL) {
+    if (prv_inst.initialized == false) {
+        return -ENODEV;
+    }
+
+    if (callback == NULL) {
         return -EINVAL;
     }
 
-    prv_inst.rx_handler = rx_handler;
+    prv_inst.rx_callback = callback;
 
     return 0;
 }
-/*****************************************************************************
- * Shell Commands & Bindings
- *****************************************************************************/
-
-/**
- * @brief Debug command to write raw data over PHY
- *
- * @param shell Pointer to shell
- * @param argc Number of arguments
- * @param argv Argument list
- * @return Return status
- */
-static int prv_shell_cmd_write(const struct shell *shell, size_t argc, char **argv)
-{
-    uint16_t device_id = atoi(argv[1]);
-    char *message = argv[2];
-
-    int ret = dect_data_layer_write(device_id, message, strlen(message) + 1);
-
-    if (ret != 0) {
-        shell_error(shell, "Failed to write message to device ID 0x%04X: %d", device_id, ret);
-        return ret;
-    }
-
-    shell_print(shell, "Successfully wrote message to device ID 0x%04X.", device_id);
-
-    return 0;
-}
-
-/**
- * @brief Debug command to get device ID
- *
- * @param shell Pointer to shell
- * @param argc Number of arguments
- * @param argv Argument list
- * @return Return status
- */
-static int prv_shell_cmd_get_device_id(const struct shell *shell, size_t argc, char **argv)
-{
-    shell_print(shell, "Device ID is: %u", device_id());
-
-    return 0;
-}
-
-SHELL_SUBCMD_SET_CREATE(sub_data_layer, (data_layer));
-SHELL_CMD_REGISTER(data_layer, &sub_data_layer, "Data Layer Commands", NULL);
-
-SHELL_SUBCMD_ADD((data_layer), write, NULL,
-                 "Write data over data layer.\n"
-                 "Usage: data_layer write <dest_id> <message>\n",
-                 prv_shell_cmd_write, 3, 0);
-
-SHELL_SUBCMD_ADD((data_layer), device_id, NULL,
-                 "Print device ID.\n"
-                 "Usage: data_layer device_id\n",
-                 prv_shell_cmd_get_device_id, 1, 0);
