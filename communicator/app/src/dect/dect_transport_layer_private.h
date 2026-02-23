@@ -50,11 +50,11 @@ typedef struct dect_transport_layer_data_frame_ack_t {
     dect_transport_layer_frame_header_t header;
     uint16_t seq_id;
     uint8_t frag_idx;
-} __attribute__((__packed__)) dect_transport_layer_ack_frame_t;
+} __attribute__((__packed__)) dect_transport_layer_data_frame_ack_t;
 
 /**
  * @typedef dect_transport_layer_data_frame_t
- * @brief [TODO:description]
+ * @brief Frame for writing data over transport medium
  *
  */
 typedef struct dect_transport_layer_data_frame_t {
@@ -63,7 +63,7 @@ typedef struct dect_transport_layer_data_frame_t {
     uint8_t frag_total;
     uint8_t frag_idx;
     uint16_t total_size_bytes;
-    uint8_t payload[]
+    uint8_t payload[];
 } __attribute__((__packed__)) dect_transport_layer_data_frame_t;
 
 /*****************************************************************************

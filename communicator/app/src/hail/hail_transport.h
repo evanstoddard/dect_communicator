@@ -46,7 +46,7 @@ typedef void (*hail_transport_rx_callback_t)(struct hail_transport_t *transport,
  *
  */
 typedef struct hail_transport_api_t {
-    int (*write)(const uint16_t src_id, const void *data, const size_t len_bytes);
+    int (*write)(const uint16_t dst_id, const void *data, const size_t len_bytes);
     int (*register_rx_cb)(hail_transport_rx_callback_t callback);
 } hail_transport_api_t;
 
