@@ -3,12 +3,12 @@
  */
 
 /**
- * @file dect_data_layer.c
+ * @file dect_link_layer.c
  * @author Evan Stoddard
  * @brief
  */
 
-#include "dect_data_layer.h"
+#include "dect_link_layer.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -22,7 +22,7 @@
 #include <nrf_modem_dect_phy.h>
 #include <modem/nrf_modem_lib.h>
 
-#include "dect_data_layer_private.h"
+#include "dect_link_layer_private.h"
 
 #include "utils/device_id.h"
 
@@ -30,15 +30,15 @@
  * Definitions
  *****************************************************************************/
 
-LOG_MODULE_REGISTER(dect_data_layer);
+LOG_MODULE_REGISTER(dect_link_layer);
 
-#define DECT_DATA_LAYER_STACK_SIZE_BYTES (1024U)
+#define DECT_LINK_LAYER_STACK_SIZE_BYTES (1024U)
 
-#define DECT_DATA_LAYER_THREAD_PRIORITY (8)
+#define DECT_LINK_LAYER_THREAD_PRIORITY (8)
 
-#define DECT_DATA_LAYER_RX_WINDOW_MS (100U)
+#define DECT_LINK_LAYER_RX_WINDOW_MS (100U)
 
-#define DECT_DATA_LAYER_TX_MSG_QUEUE_DEPTH (8U)
+#define DECT_LINK_LAYER_TX_MSG_QUEUE_DEPTH (8U)
 
 /*****************************************************************************
  * Variables
@@ -66,7 +66,7 @@ static struct {
     struct k_thread thread;
     k_tid_t thread_id;
 
-    dect_data_layer_tx_obj_t tx_queue_buf[DECT_DATA_LAYER_TX_MSG_QUEUE_DEPTH];
+    dect_link_layer_tx_obj_t tx_queue_buf[DECT_LINK_LAYER_TX_MSG_QUEUE_DEPTH];
     struct k_msgq tx_queue;
 
     volatile bool op_failed;
@@ -75,12 +75,12 @@ static struct {
 
     volatile bool valid_rx_data;
 
-    dect_data_layer_frame_t rx_frame;
+    dect_link_layer_frame_t rx_frame;
     volatile size_t rx_frame_size_bytes;
 
     struct k_sem op_sem;
 
-    dect_data_layer_rx_cb_t rx_callback;
+    dect_link_layer_rx_cb_t rx_callback;
 } prv_inst;
 
 /**
@@ -92,7 +92,7 @@ static struct nrf_modem_dect_phy_config_params prv_dect_config_params = {
     .harq_rx_expiry_time_us = 5000000,
 };
 
-K_THREAD_STACK_DEFINE(prv_dect_data_layer_thread_stack, DECT_DATA_LAYER_STACK_SIZE_BYTES);
+K_THREAD_STACK_DEFINE(prv_dect_link_layer_thread_stack, DECT_LINK_LAYER_STACK_SIZE_BYTES);
 
 /*****************************************************************************
  * PHY Control & Handlers
@@ -165,14 +165,14 @@ static void prv_on_phy_activated(const struct nrf_modem_dect_phy_activate_event 
  */
 static void prv_on_phy_pdc_event(const struct nrf_modem_dect_phy_pdc_event *event)
 {
-    if (event->len < sizeof(dect_data_layer_header_t) || event->len > sizeof(dect_data_layer_frame_t)) {
-        LOG_WRN("Invalid data layer frame size.");
+    if (event->len < sizeof(dect_link_layer_header_t) || event->len > sizeof(dect_link_layer_frame_t)) {
+        LOG_WRN("Invalid link layer frame size.");
         return;
     }
 
-    dect_data_layer_frame_t *frame = (dect_data_layer_frame_t *)event->data;
-    if (frame->header.magic != DECT_DATA_LAYER_HEADER_MAGIC) {
-        LOG_WRN("Invalid data layer magic.");
+    dect_link_layer_frame_t *frame = (dect_link_layer_frame_t *)event->data;
+    if (frame->header.magic != DECT_LINK_LAYER_HEADER_MAGIC) {
+        LOG_WRN("Invalid link layer magic.");
         return;
     }
 
@@ -332,7 +332,7 @@ static int prv_dect_receive(void)
         .link_id = NRF_MODEM_DECT_PHY_LINK_UNSPECIFIED,
         .rssi_level = -60,
         .carrier = CONFIG_CARRIER,
-        .duration = DECT_DATA_LAYER_RX_WINDOW_MS * NRF_MODEM_DECT_MODEM_TIME_TICK_RATE_KHZ,
+        .duration = DECT_LINK_LAYER_RX_WINDOW_MS * NRF_MODEM_DECT_MODEM_TIME_TICK_RATE_KHZ,
         .filter.short_network_id = CONFIG_NETWORK_ID & 0xff,
         .filter.is_short_network_id_used = 1,
         /* listen for everything (broadcast mode used) */
@@ -363,7 +363,7 @@ static int prv_dect_receive(void)
  * @param tx_obj Pointer to TX object
  * @return Return status
  */
-static int prv_data_layer_write_frame(const dect_data_layer_tx_obj_t *tx_obj)
+static int prv_link_layer_write_frame(const dect_link_layer_tx_obj_t *tx_obj)
 {
     struct phy_ctrl_field_common header = {.header_format = 0x0,
                                            .packet_length_type = 0x0,
@@ -386,7 +386,7 @@ static int prv_data_layer_write_frame(const dect_data_layer_tx_obj_t *tx_obj)
         .lbt_period = NRF_MODEM_DECT_LBT_PERIOD_MAX,
         .phy_header = (union nrf_modem_dect_phy_hdr *)&header,
         .data = (uint8_t *)&tx_obj->frame,
-        .data_size = sizeof(dect_data_layer_frame_t),
+        .data_size = sizeof(dect_link_layer_frame_t),
     };
 
     int ret = nrf_modem_dect_phy_tx(&tx_op_params);
@@ -408,20 +408,20 @@ static int prv_data_layer_write_frame(const dect_data_layer_tx_obj_t *tx_obj)
 }
 
 /**
- * @brief Data layer processing thread
+ * @brief Link layer processing thread
  *
  * @param arg1 Unused
  * @param arg2 Unused
  * @param arg3 Unused
  */
-static void prv_data_layer_thread(void *arg1, void *arg2, void *arg3)
+static void prv_link_layer_thread(void *arg1, void *arg2, void *arg3)
 {
     while (true) {
-        dect_data_layer_tx_obj_t tx_obj = {0};
+        dect_link_layer_tx_obj_t tx_obj = {0};
         int ret = k_msgq_get(&prv_inst.tx_queue, &tx_obj, K_NO_WAIT);
 
         if (ret == 0) {
-            ret = prv_data_layer_write_frame(&tx_obj);
+            ret = prv_link_layer_write_frame(&tx_obj);
             if (ret != 0) {
                 LOG_ERR("Failed to write frame: %d", ret);
             }
@@ -446,14 +446,14 @@ static void prv_data_layer_thread(void *arg1, void *arg2, void *arg3)
  * Functions
  *****************************************************************************/
 
-int dect_data_layer_init(void)
+int dect_link_layer_init(void)
 {
     if (prv_inst.initialized == true) {
         return -EALREADY;
     }
 
-    k_msgq_init(&prv_inst.tx_queue, (char *)prv_inst.tx_queue_buf, DECT_DATA_LAYER_MAX_PAYLOAD_SIZE_BYTES,
-                DECT_DATA_LAYER_TX_MSG_QUEUE_DEPTH);
+    k_msgq_init(&prv_inst.tx_queue, (char *)prv_inst.tx_queue_buf, DECT_LINK_LAYER_MAX_PAYLOAD_SIZE_BYTES,
+                DECT_LINK_LAYER_TX_MSG_QUEUE_DEPTH);
 
     k_sem_init(&prv_inst.op_sem, 0, 1);
 
@@ -487,15 +487,15 @@ int dect_data_layer_init(void)
         return ret;
     }
 
-    prv_inst.thread_id = k_thread_create(&prv_inst.thread, prv_dect_data_layer_thread_stack,
-                                         K_THREAD_STACK_SIZEOF(prv_dect_data_layer_thread_stack), prv_data_layer_thread,
-                                         NULL, NULL, NULL, DECT_DATA_LAYER_THREAD_PRIORITY, 0, K_NO_WAIT);
+    prv_inst.thread_id = k_thread_create(&prv_inst.thread, prv_dect_link_layer_thread_stack,
+                                         K_THREAD_STACK_SIZEOF(prv_dect_link_layer_thread_stack), prv_link_layer_thread,
+                                         NULL, NULL, NULL, DECT_LINK_LAYER_THREAD_PRIORITY, 0, K_NO_WAIT);
 
     prv_inst.initialized = true;
     return 0;
 }
 
-int dect_data_layer_write(const uint16_t dst_id, const void *buf, const size_t buf_size_bytes)
+int dect_link_layer_write(const uint16_t dst_id, const void *buf, const size_t buf_size_bytes)
 {
     if (prv_inst.initialized == false) {
         return -ENOTCONN;
@@ -505,13 +505,13 @@ int dect_data_layer_write(const uint16_t dst_id, const void *buf, const size_t b
         return -EINVAL;
     }
 
-    if (buf_size_bytes > DECT_DATA_LAYER_MAX_PAYLOAD_SIZE_BYTES) {
+    if (buf_size_bytes > DECT_LINK_LAYER_MAX_PAYLOAD_SIZE_BYTES) {
         return -ENOMEM;
     }
 
-    dect_data_layer_tx_obj_t tx_obj = {.frame.header = {.src_id = device_id(),
+    dect_link_layer_tx_obj_t tx_obj = {.frame.header = {.src_id = device_id(),
                                                         .dst_id = dst_id,
-                                                        .magic = DECT_DATA_LAYER_HEADER_MAGIC,
+                                                        .magic = DECT_LINK_LAYER_HEADER_MAGIC,
                                                         .version = 1,
                                                         .payload_size = buf_size_bytes}};
 
@@ -522,7 +522,7 @@ int dect_data_layer_write(const uint16_t dst_id, const void *buf, const size_t b
     return ret;
 }
 
-int dect_data_layer_register_rx_callback(dect_data_layer_rx_cb_t callback)
+int dect_link_layer_register_rx_callback(dect_link_layer_rx_cb_t callback)
 {
     if (prv_inst.initialized == false) {
         return -ENODEV;

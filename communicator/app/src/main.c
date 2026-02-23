@@ -10,7 +10,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
-#include "dect/dect_data_layer.h"
+#include "dect/dect_link_layer.h"
 
 #include "ble/ble_core.h"
 
