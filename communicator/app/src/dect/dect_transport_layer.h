@@ -17,7 +17,7 @@
 // NOTE: This definitely couples the transport layer with the higher level "hail" layer, but fine for this MVP. This can
 // easily be refactored later on as a majority of this layer is fairly decoupled from upper levels of the stack
 #include "hail/hail_transport.h"
-#include "hail/hail_transport_buffer.h"
+#include "utils/transport_buffer.h"
 
 #ifdef __cplusplus
 extern "C" {
