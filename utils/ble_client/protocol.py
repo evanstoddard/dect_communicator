@@ -15,6 +15,9 @@ from dataclasses import dataclass
 ALFIE_BLE_SERVICE_UUID = "c1534fa3-5211-4e32-a176-d1af04513305"
 ALFIE_BLE_SERVICE_DATA_CHAR_UUID = "c1534fa4-5211-4e32-a176-d1af04513305"
 
+CONTROL_BLE_SERVICE_UUID = "7928884e-01e6-4137-86d3-adefd8afe21d"
+CONTROL_BLE_SERVICE_DEVICE_ID_CHAR_UUID = "7928884f-01e6-4137-86d3-adefd8afe21d"
+
 # ---------------------------------------------------------------------------
 # BLE transport frame types (alfie_ble_service_proto_frame_type_t)
 # ---------------------------------------------------------------------------
