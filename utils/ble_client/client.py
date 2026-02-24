@@ -10,6 +10,7 @@ import asyncio
 import logging
 import math
 import random
+import struct
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -19,6 +20,7 @@ from bleak.backends.device import BLEDevice
 from protocol import (
     ALFIE_BLE_SERVICE_UUID,
     ALFIE_BLE_SERVICE_DATA_CHAR_UUID,
+    CONTROL_BLE_SERVICE_DEVICE_ID_CHAR_UUID,
     FRAME_BASE_HEADER_FMT,
     FRAME_BASE_HEADER_SIZE,
     DATA_FRAME_HEADER_SIZE,
@@ -57,6 +59,7 @@ class MessagingClient:
         self._on_error: Optional[Callable[[str], None]] = None
         self._scan_results: list[BLEDevice] = []
         self._max_frame_payload = MAX_DATA_FRAME_PAYLOAD
+        self.device_id: Optional[int] = None
 
     @property
     def connected(self) -> bool:
@@ -99,6 +102,24 @@ class MessagingClient:
             ALFIE_BLE_SERVICE_DATA_CHAR_UUID, self._on_notification
         )
         self._connected = True
+
+        # Read device ID from control service
+        self.device_id = await self.read_device_id()
+
+    async def read_device_id(self) -> Optional[int]:
+        """Read the 32-bit device ID from the control BLE service."""
+        if not self._client or not self._client.is_connected:
+            return None
+        try:
+            data = await self._client.read_gatt_char(
+                CONTROL_BLE_SERVICE_DEVICE_ID_CHAR_UUID
+            )
+            if len(data) >= 4:
+                return struct.unpack_from("<I", data)[0]
+            logger.warning("Device ID characteristic returned %d bytes", len(data))
+        except Exception:
+            logger.warning("Failed to read device ID", exc_info=True)
+        return None
 
     async def disconnect(self):
         if self._client and self._client.is_connected:

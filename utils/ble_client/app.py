@@ -201,6 +201,11 @@ class MessagingApp(App):
         try:
             await self.client.connect(address)
             self._log("[green]Connected![/green]")
+            if self.client.device_id is not None:
+                self.src_id = self.client.device_id
+                self._log(
+                    f"Device ID: [bold]{self.src_id:#010x}[/bold] (set as SRC ID)"
+                )
             self._update_status()
         except Exception as e:
             self._log(f"[red]Connection failed: {escape(str(e))}[/red]")
