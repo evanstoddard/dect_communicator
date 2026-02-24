@@ -1,1 +1,2 @@
 add_subdirectory(alfie_service)
+add_subdirectory(control_service)
