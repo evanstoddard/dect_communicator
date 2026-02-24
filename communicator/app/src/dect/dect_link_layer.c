@@ -452,7 +452,7 @@ int dect_link_layer_init(void)
         return -EALREADY;
     }
 
-    k_msgq_init(&prv_inst.tx_queue, (char *)prv_inst.tx_queue_buf, DECT_LINK_LAYER_MAX_PAYLOAD_SIZE_BYTES,
+    k_msgq_init(&prv_inst.tx_queue, (char *)prv_inst.tx_queue_buf, sizeof(dect_link_layer_tx_obj_t),
                 DECT_LINK_LAYER_TX_MSG_QUEUE_DEPTH);
 
     k_sem_init(&prv_inst.op_sem, 0, 1);
@@ -495,7 +495,7 @@ int dect_link_layer_init(void)
     return 0;
 }
 
-int dect_link_layer_write(const uint16_t dst_id, const void *buf, const size_t buf_size_bytes)
+int dect_link_layer_write(const uint32_t dst_id, const void *buf, const size_t buf_size_bytes)
 {
     if (prv_inst.initialized == false) {
         return -ENOTCONN;

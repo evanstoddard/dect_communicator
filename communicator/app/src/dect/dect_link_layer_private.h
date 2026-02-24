@@ -49,14 +49,14 @@ typedef struct dect_link_layer_header_t {
     uint8_t version;
 
     /**
-     * @brief Source short address (little endian)
+     * @brief Source address (little endian)
      */
-    uint16_t src_id;
+    uint32_t src_id;
 
     /**
-     * @brief Destination short address (little endian)
+     * @brief Destination address (little endian)
      */
-    uint16_t dst_id;
+    uint32_t dst_id;
 
     uint16_t payload_size;
 } __attribute__((__packed__)) dect_link_layer_header_t;

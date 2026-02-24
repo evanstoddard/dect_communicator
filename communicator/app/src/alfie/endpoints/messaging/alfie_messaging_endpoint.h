@@ -3,42 +3,38 @@
  */
 
 /**
- * @file device_id.c
+ * @file alfie_messaging_endpoint.h
  * @author Evan Stoddard
  * @brief
  */
 
-#include "device_id.h"
+#ifndef alfie_messaging_endpoint_h
+#define alfie_messaging_endpoint_h
 
-#include <stdbool.h>
-
-#include <zephyr/drivers/hwinfo.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*****************************************************************************
  * Definitions
  *****************************************************************************/
 
 /*****************************************************************************
- * Variables
+ * Structs, Unions, Enums, & Typedefs
  *****************************************************************************/
 
 /*****************************************************************************
- * Prototypes
+ * Function Prototypes
  *****************************************************************************/
 
-/*****************************************************************************
- * Functions
- *****************************************************************************/
+/**
+ * @brief Initialize Alfie messaging endpoint
+ *
+ * @return Returns 0 on success or negative errno on error
+ */
+int alfie_messaging_endpoint_init(void);
 
-uint32_t device_id(void)
-{
-    static bool fetched = false;
-    static uint32_t id = 0;
-
-    if (fetched == false) {
-        hwinfo_get_device_id((void *)&id, sizeof(id));
-        fetched = true;
-    }
-
-    return id;
+#ifdef __cplusplus
 }
+#endif
+#endif /* alfie_messaging_endpoint_h */

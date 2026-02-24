@@ -46,7 +46,7 @@ typedef void (*alfie_transport_rx_callback_t)(struct alfie_transport_t *transpor
  *
  */
 typedef struct alfie_transport_api_t {
-    int (*write)(const uint16_t dst_id, const void *data, const size_t len_bytes);
+    int (*write)(const uint32_t dst_id, const void *data, const size_t len_bytes);
     int (*register_rx_cb)(alfie_transport_rx_callback_t callback);
 } alfie_transport_api_t;
 

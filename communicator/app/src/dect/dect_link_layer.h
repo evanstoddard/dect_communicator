@@ -32,7 +32,7 @@ extern "C" {
  * Structs, Unions, Enums, & Typedefs
  *****************************************************************************/
 
-typedef void (*dect_link_layer_rx_cb_t)(const uint16_t src_id, const void *buf, const size_t len_bytes);
+typedef void (*dect_link_layer_rx_cb_t)(const uint32_t src_id, const void *buf, const size_t len_bytes);
 
 /*****************************************************************************
  * Function Prototypes
@@ -55,7 +55,7 @@ int dect_link_layer_init(void);
  * @param buf_size_bytes Size of the data buffer in bytes
  * @return 0 on success, negative errno on failure
  */
-int dect_link_layer_write(const uint16_t dst_id, const void *buf, const size_t buf_size_bytes);
+int dect_link_layer_write(const uint32_t dst_id, const void *buf, const size_t buf_size_bytes);
 
 /**
  * @brief Register RX callback with link layer. Calling this will overwrite any previously registered callback

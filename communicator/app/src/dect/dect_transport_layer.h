@@ -50,7 +50,7 @@ int dect_transport_layer_init(void);
  * @param len_bytes Length of buffer in bytes
  * @return Returns 0 on success or negative errno
  */
-int dect_transport_layer_write(const uint16_t dst_id, const void *data, size_t len_bytes);
+int dect_transport_layer_write(const uint32_t dst_id, const void *data, size_t len_bytes);
 
 /**
  * @brief Register RX callback. NOTE: Will overwrite previously registered callback
@@ -59,6 +59,13 @@ int dect_transport_layer_write(const uint16_t dst_id, const void *data, size_t l
  * @return Returns 0 on success
  */
 int dect_transport_layer_register_rx_callback(alfie_transport_rx_callback_t callback);
+
+/**
+ * @brief Get transport instance for registration with router
+ *
+ * @return Pointer to transport instance, or NULL if not initialized
+ */
+alfie_transport_t *dect_transport_layer_get_transport(void);
 
 #ifdef __cplusplus
 }

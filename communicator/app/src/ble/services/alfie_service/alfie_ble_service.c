@@ -356,7 +356,7 @@ int alfie_ble_service_init(void)
     return 0;
 }
 
-int alfie_ble_service_write(const uint16_t dst_id, const void *data, size_t len_bytes)
+int alfie_ble_service_write(const uint32_t dst_id, const void *data, size_t len_bytes)
 {
     if (data == NULL || len_bytes == 0) {
         return -EINVAL;
@@ -421,4 +421,13 @@ int alfie_ble_service_register_rx_callback(alfie_transport_rx_callback_t callbac
 
     prv_inst.transport_rx_callback = callback;
     return 0;
+}
+
+alfie_transport_t *alfie_ble_service_get_transport(void)
+{
+    if (prv_inst.initialized == false) {
+        return NULL;
+    }
+
+    return &prv_inst.transport;
 }

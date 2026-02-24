@@ -48,7 +48,7 @@ int alfie_ble_service_init(void);
  * @param len_bytes Length of buffer in bytes
  * @return Returns 0 on success or negative errno
  */
-int alfie_ble_service_write(const uint16_t dst_id, const void *data, size_t len_bytes);
+int alfie_ble_service_write(const uint32_t dst_id, const void *data, size_t len_bytes);
 
 /**
  * @brief Register RX callback. NOTE: Will overwrite previously registered callback.
@@ -57,6 +57,13 @@ int alfie_ble_service_write(const uint16_t dst_id, const void *data, size_t len_
  * @return Returns 0 on success
  */
 int alfie_ble_service_register_rx_callback(alfie_transport_rx_callback_t callback);
+
+/**
+ * @brief Get transport instance for registration with router
+ *
+ * @return Pointer to transport instance, or NULL if not initialized
+ */
+alfie_transport_t *alfie_ble_service_get_transport(void);
 
 #ifdef __cplusplus
 }
