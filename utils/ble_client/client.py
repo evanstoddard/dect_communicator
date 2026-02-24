@@ -1,8 +1,8 @@
 """
-BLE messaging client with fragmentation and reassembly.
+BLE Alfie client with fragmentation and reassembly.
 
-Implements the same framing protocol as messaging_service.c on the firmware
-side: payload frames are fragmented and each fragment is ACK'd before the
+Implements the same framing protocol as alfie_ble_service.c on the firmware
+side: data frames are fragmented and each fragment is ACK'd before the
 next is sent.  Incoming notifications are reassembled the same way.
 """
 
@@ -17,13 +17,16 @@ from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 
 from protocol import (
-    MESSAGING_SERVICE_UUID,
-    MESSAGING_SERVICE_DATA_CHAR_UUID,
-    FRAME_HEADER_SIZE,
-    MAX_FRAME_PAYLOAD,
-    FRAME_TYPE_ACK,
-    FRAME_TYPE_PAYLOAD,
-    FrameHeader,
+    ALFIE_BLE_SERVICE_UUID,
+    ALFIE_BLE_SERVICE_DATA_CHAR_UUID,
+    FRAME_BASE_HEADER_FMT,
+    FRAME_BASE_HEADER_SIZE,
+    DATA_FRAME_HEADER_SIZE,
+    MAX_DATA_FRAME_PAYLOAD,
+    FRAME_TYPE_DATA,
+    FRAME_TYPE_DATA_ACK,
+    DataFrameHeader,
+    AckFrame,
     TextMessage,
 )
 
@@ -37,6 +40,7 @@ MAX_TX_ATTEMPTS = 4
 class _ReassemblyCtx:
     seq_id: int
     frag_total: int
+    total_size_bytes: int
     frag_idx: int = 0
     buffer: bytearray = field(default_factory=bytearray)
 
@@ -52,7 +56,7 @@ class MessagingClient:
         self._on_connection_change: Optional[Callable[[bool], None]] = None
         self._on_error: Optional[Callable[[str], None]] = None
         self._scan_results: list[BLEDevice] = []
-        self._max_frame_payload = MAX_FRAME_PAYLOAD
+        self._max_frame_payload = MAX_DATA_FRAME_PAYLOAD
 
     @property
     def connected(self) -> bool:
@@ -88,11 +92,11 @@ class MessagingClient:
         mtu = self._client.mtu_size
         if mtu and mtu > 0:
             self._max_frame_payload = min(
-                MAX_FRAME_PAYLOAD, mtu - 3 - FRAME_HEADER_SIZE
+                MAX_DATA_FRAME_PAYLOAD, mtu - 3 - DATA_FRAME_HEADER_SIZE
             )
 
         await self._client.start_notify(
-            MESSAGING_SERVICE_DATA_CHAR_UUID, self._on_notification
+            ALFIE_BLE_SERVICE_DATA_CHAR_UUID, self._on_notification
         )
         self._connected = True
 
@@ -111,28 +115,36 @@ class MessagingClient:
             self._on_connection_change(False)
 
     def _on_notification(self, _sender, data: bytearray):
-        if len(data) < FRAME_HEADER_SIZE:
-            return
-        header = FrameHeader.unpack(bytes(data))
+        import struct
 
-        if header.frame_type == FRAME_TYPE_ACK:
+        if len(data) < FRAME_BASE_HEADER_SIZE:
+            return
+
+        _, frame_type = struct.unpack_from(FRAME_BASE_HEADER_FMT, data)
+
+        if frame_type == FRAME_TYPE_DATA_ACK:
             self._ack_event.set()
             return
 
-        if header.frame_type == FRAME_TYPE_PAYLOAD:
-            self._handle_rx_payload(header, bytes(data[FRAME_HEADER_SIZE:]))
+        if frame_type == FRAME_TYPE_DATA:
+            if len(data) < DATA_FRAME_HEADER_SIZE:
+                return
+            header = DataFrameHeader.unpack(bytes(data))
+            self._handle_rx_payload(header, bytes(data[DATA_FRAME_HEADER_SIZE:]))
 
     # ------------------------------------------------------------------
     # Internal: RX reassembly
     # ------------------------------------------------------------------
-    def _handle_rx_payload(self, header: FrameHeader, payload: bytes):
+    def _handle_rx_payload(self, header: DataFrameHeader, payload: bytes):
         ctx = self._rx_contexts.get(header.seq_id)
 
         if ctx is None:
             if header.frag_idx != 0:
                 return
             ctx = _ReassemblyCtx(
-                seq_id=header.seq_id, frag_total=header.frag_total
+                seq_id=header.seq_id,
+                frag_total=header.frag_total,
+                total_size_bytes=header.total_size_bytes,
             )
             self._rx_contexts[header.seq_id] = ctx
 
@@ -156,19 +168,18 @@ class MessagingClient:
             del self._rx_contexts[header.seq_id]
             self._deliver_message(bytes(ctx.buffer))
 
-    async def _send_ack(self, header: FrameHeader):
+    async def _send_ack(self, header: DataFrameHeader):
         if not self.connected:
             return
-        ack = FrameHeader(
+        ack = AckFrame(
             version=0,
-            frame_type=FRAME_TYPE_ACK,
-            frag_total=header.frag_total,
-            frag_idx=header.frag_idx,
+            frame_type=FRAME_TYPE_DATA_ACK,
             seq_id=header.seq_id,
+            frag_idx=header.frag_idx,
         )
         try:
             await self._client.write_gatt_char(
-                MESSAGING_SERVICE_DATA_CHAR_UUID, ack.pack(), response=True
+                ALFIE_BLE_SERVICE_DATA_CHAR_UUID, ack.pack(), response=True
             )
         except Exception:
             logger.warning("Failed to send ACK", exc_info=True)
@@ -187,34 +198,36 @@ class MessagingClient:
     # ------------------------------------------------------------------
     # Public: send
     # ------------------------------------------------------------------
-    async def send_text(self, dst_id: int, text: str) -> TextMessage:
+    async def send_text(self, src_id: int, dst_id: int, text: str) -> TextMessage:
         if not self.connected:
             raise ConnectionError("Not connected")
-        msg = TextMessage.create(dst_id, text)
+        msg = TextMessage.create(src_id, dst_id, text)
         await self._send_fragmented(msg.pack())
         return msg
 
     async def _send_fragmented(self, data: bytes):
         seq_id = random.randint(0, 0xFFFF)
-        frag_total = max(1, math.ceil(len(data) / self._max_frame_payload))
+        total_size = len(data)
+        frag_total = max(1, math.ceil(total_size / self._max_frame_payload))
 
         for i in range(frag_total):
             offset = i * self._max_frame_payload
             chunk = data[offset : offset + self._max_frame_payload]
 
-            header = FrameHeader(
+            header = DataFrameHeader(
                 version=0,
-                frame_type=FRAME_TYPE_PAYLOAD,
-                frag_total=frag_total,
-                frag_idx=i,
+                frame_type=FRAME_TYPE_DATA,
                 seq_id=seq_id,
+                total_size_bytes=total_size,
+                frag_idx=i,
+                frag_total=frag_total,
             )
             frame = header.pack() + chunk
 
             for attempt in range(MAX_TX_ATTEMPTS):
                 self._ack_event.clear()
                 await self._client.write_gatt_char(
-                    MESSAGING_SERVICE_DATA_CHAR_UUID, frame, response=True
+                    ALFIE_BLE_SERVICE_DATA_CHAR_UUID, frame, response=True
                 )
                 try:
                     await asyncio.wait_for(

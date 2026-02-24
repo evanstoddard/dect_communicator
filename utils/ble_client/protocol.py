@@ -1,7 +1,8 @@
 """
 Protocol definitions matching the firmware headers:
-  - messaging_service_protocol.h  (BLE service framing layer)
-  - messaging_endpoint_protocol.h (application-level messages)
+  - alfie_ble_service_protocol.h  (BLE service transport framing)
+  - alfie_protocol.h              (Alfie protocol header)
+  - alfie_messaging_proto.h       (messaging endpoint)
 """
 
 import struct
@@ -11,97 +12,152 @@ from dataclasses import dataclass
 # ---------------------------------------------------------------------------
 # BLE Service UUIDs
 # ---------------------------------------------------------------------------
-MESSAGING_SERVICE_UUID = "c1534fa3-5211-4e32-a176-d1af04513305"
-MESSAGING_SERVICE_DATA_CHAR_UUID = "c1534fa4-5211-4e32-a176-d1af04513305"
+ALFIE_BLE_SERVICE_UUID = "c1534fa3-5211-4e32-a176-d1af04513305"
+ALFIE_BLE_SERVICE_DATA_CHAR_UUID = "c1534fa4-5211-4e32-a176-d1af04513305"
 
 # ---------------------------------------------------------------------------
-# Service frame types  (messaging_service_frame_type_t)
+# BLE transport frame types (alfie_ble_service_proto_frame_type_t)
 # ---------------------------------------------------------------------------
-FRAME_TYPE_ACK = 0x00
-FRAME_TYPE_PAYLOAD = 0x01
-FRAME_TYPE_RESET = 0xFF
+FRAME_TYPE_DATA = 0x00
+FRAME_TYPE_DATA_ACK = 0x01
 
 # ---------------------------------------------------------------------------
-# Service frame sizes
+# BLE transport frame header (alfie_ble_service_proto_frame_header_t)
+# Layout: version(u8) frame_type(u8)
 # ---------------------------------------------------------------------------
-# Header layout: version(u8) frame_type(u8) frag_total(u8) frag_idx(u8) seq_id(u16 LE)
-FRAME_HEADER_FMT = "<BBBBH"
-FRAME_HEADER_SIZE = struct.calcsize(FRAME_HEADER_FMT)  # 6
+FRAME_BASE_HEADER_FMT = "<BB"
+FRAME_BASE_HEADER_SIZE = struct.calcsize(FRAME_BASE_HEADER_FMT)  # 2
+
+# ---------------------------------------------------------------------------
+# Data frame header (alfie_ble_service_proto_data_frame_t)
+# Layout: base_header(2) + seq_id(u16) + total_size_bytes(u16) + frag_idx(u8) + frag_total(u8)
+# ---------------------------------------------------------------------------
+DATA_FRAME_HEADER_FMT = "<BBHHBB"
+DATA_FRAME_HEADER_SIZE = struct.calcsize(DATA_FRAME_HEADER_FMT)  # 8
+
+# ---------------------------------------------------------------------------
+# ACK frame (alfie_ble_service_proto_data_ack_frame_t)
+# Layout: base_header(2) + seq_id(u16) + frag_idx(u8)
+# ---------------------------------------------------------------------------
+ACK_FRAME_FMT = "<BBHB"
+ACK_FRAME_SIZE = struct.calcsize(ACK_FRAME_FMT)  # 5
 
 MAX_ATT_PAYLOAD = 251  # Assumes negotiated MTU of 254
-MAX_FRAME_PAYLOAD = MAX_ATT_PAYLOAD - FRAME_HEADER_SIZE  # 245
+MAX_DATA_FRAME_PAYLOAD = MAX_ATT_PAYLOAD - DATA_FRAME_HEADER_SIZE  # 243
 
 # ---------------------------------------------------------------------------
-# Messaging endpoint constants
+# Alfie protocol header (alfie_proto_header_t)
+# Layout: version(u8) endpoint_id(u8) src_id(u32) dst_id(u32)
 # ---------------------------------------------------------------------------
-MSG_TYPE_TEXT = 0x00
+ALFIE_HEADER_FMT = "<BBII"
+ALFIE_HEADER_SIZE = struct.calcsize(ALFIE_HEADER_FMT)  # 10
 
-ENDPOINT_HEADER_FMT = "<BB"  # version(u8) msg_type(u8)
-ENDPOINT_HEADER_SIZE = struct.calcsize(ENDPOINT_HEADER_FMT)  # 2
+ALFIE_MESSAGING_ENDPOINT_ID = 0x00
+
+# ---------------------------------------------------------------------------
+# Messaging endpoint (alfie_messaging_proto.h)
+# ---------------------------------------------------------------------------
+MESSAGING_FRAME_TYPE_TEXT = 0x00
+
+# Messaging header: alfie_header(10) + frame_type(u8)
+MESSAGING_HEADER_FMT = "<BBIIB"
+MESSAGING_HEADER_SIZE = struct.calcsize(MESSAGING_HEADER_FMT)  # 11
 
 MSG_UUID_SIZE = 16
-TEXT_MSG_META_FMT = f"<H{MSG_UUID_SIZE}s"  # dst_id(u16 LE) uuid(16 bytes)
-TEXT_MSG_META_SIZE = struct.calcsize(TEXT_MSG_META_FMT)  # 18
 
 MAX_ENDPOINT_MSG_SIZE = 512
-MAX_TEXT_PAYLOAD_SIZE = (
-    MAX_ENDPOINT_MSG_SIZE - ENDPOINT_HEADER_SIZE - TEXT_MSG_META_SIZE
-)  # 492
+MAX_TEXT_PAYLOAD_SIZE = MAX_ENDPOINT_MSG_SIZE - MESSAGING_HEADER_SIZE - MSG_UUID_SIZE  # 485
 
 
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
 @dataclass
-class FrameHeader:
-    """BLE service frame header (messaging_service_frame_header_t)."""
+class DataFrameHeader:
+    """BLE transport data frame header (alfie_ble_service_proto_data_frame_t)."""
 
     version: int
     frame_type: int
-    frag_total: int
-    frag_idx: int
     seq_id: int
+    total_size_bytes: int
+    frag_idx: int
+    frag_total: int
 
     def pack(self) -> bytes:
         return struct.pack(
-            FRAME_HEADER_FMT,
+            DATA_FRAME_HEADER_FMT,
             self.version,
             self.frame_type,
-            self.frag_total,
-            self.frag_idx,
             self.seq_id,
+            self.total_size_bytes,
+            self.frag_idx,
+            self.frag_total,
         )
 
     @classmethod
-    def unpack(cls, data: bytes) -> "FrameHeader":
-        return cls(*struct.unpack_from(FRAME_HEADER_FMT, data))
+    def unpack(cls, data: bytes) -> "DataFrameHeader":
+        return cls(*struct.unpack_from(DATA_FRAME_HEADER_FMT, data))
+
+
+@dataclass
+class AckFrame:
+    """BLE transport ACK frame (alfie_ble_service_proto_data_ack_frame_t)."""
+
+    version: int
+    frame_type: int
+    seq_id: int
+    frag_idx: int
+
+    def pack(self) -> bytes:
+        return struct.pack(
+            ACK_FRAME_FMT,
+            self.version,
+            self.frame_type,
+            self.seq_id,
+            self.frag_idx,
+        )
+
+    @classmethod
+    def unpack(cls, data: bytes) -> "AckFrame":
+        return cls(*struct.unpack_from(ACK_FRAME_FMT, data))
 
 
 @dataclass
 class TextMessage:
-    """Application-level text message (messaging_endpoint_text_message_t)."""
+    """Application-level text message (alfie_messaging_proto_text_frame_t)."""
 
+    src_id: int
     dst_id: int
     msg_uuid: bytes
     text: str
 
     def pack(self) -> bytes:
-        header = struct.pack(ENDPOINT_HEADER_FMT, 0, MSG_TYPE_TEXT)
-        meta = struct.pack(TEXT_MSG_META_FMT, self.dst_id, self.msg_uuid)
-        return header + meta + self.text.encode("utf-8")
+        # Messaging header: alfie_header(version, endpoint_id, src_id, dst_id) + frame_type
+        header = struct.pack(
+            MESSAGING_HEADER_FMT,
+            0,  # version
+            ALFIE_MESSAGING_ENDPOINT_ID,
+            self.src_id,
+            self.dst_id,
+            MESSAGING_FRAME_TYPE_TEXT,
+        )
+        return header + self.msg_uuid + self.text.encode("utf-8") + b"\x00"
 
     @classmethod
     def unpack(cls, data: bytes) -> "TextMessage":
-        _, msg_type = struct.unpack_from(ENDPOINT_HEADER_FMT, data)
-        if msg_type != MSG_TYPE_TEXT:
-            raise ValueError(f"Unknown message type: {msg_type:#x}")
-        dst_id, msg_uuid = struct.unpack_from(
-            TEXT_MSG_META_FMT, data, ENDPOINT_HEADER_SIZE
+        version, endpoint_id, src_id, dst_id, frame_type = struct.unpack_from(
+            MESSAGING_HEADER_FMT, data
         )
-        text_start = ENDPOINT_HEADER_SIZE + TEXT_MSG_META_SIZE
+        if frame_type != MESSAGING_FRAME_TYPE_TEXT:
+            raise ValueError(f"Unknown messaging frame type: {frame_type:#x}")
+
+        uuid_start = MESSAGING_HEADER_SIZE
+        msg_uuid = data[uuid_start : uuid_start + MSG_UUID_SIZE]
+
+        text_start = uuid_start + MSG_UUID_SIZE
         text = data[text_start:].decode("utf-8", errors="replace").rstrip("\x00")
-        return cls(dst_id, msg_uuid, text)
+        return cls(src_id, dst_id, msg_uuid, text)
 
     @classmethod
-    def create(cls, dst_id: int, text: str) -> "TextMessage":
-        return cls(dst_id, _uuid.uuid4().bytes, text)
+    def create(cls, src_id: int, dst_id: int, text: str) -> "TextMessage":
+        return cls(src_id, dst_id, _uuid.uuid4().bytes, text)
