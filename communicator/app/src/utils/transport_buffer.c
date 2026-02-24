@@ -50,10 +50,10 @@ transport_buffer_t *prv_buffer_for_index(transport_buffer_pool_t *inst, size_t i
  *****************************************************************************/
 
 int transport_buffer_pool_init(transport_buffer_pool_t *inst, struct net_buf_pool *pool, size_t num_buffers,
-                                size_t buffer_size_bytes, void *contexts, size_t context_size_bytes,
-                                uint32_t rx_timeout_ms, transport_buffer_pool_api_t *api)
+                               size_t buffer_size_bytes, void *contexts, size_t context_size_bytes,
+                               uint32_t rx_timeout_ms, transport_buffer_pool_api_t *api)
 {
-    if (inst == NULL || pool == NULL || api == NULL || contexts == NULL || num_buffers == 0) {
+    if (inst == NULL || pool == NULL || contexts == NULL || num_buffers == 0) {
         return -EINVAL;
     }
 
@@ -77,14 +77,14 @@ int transport_buffer_pool_init(transport_buffer_pool_t *inst, struct net_buf_poo
 }
 
 transport_buffer_t *transport_buffer_pool_get(transport_buffer_pool_t *inst, const uint16_t seq_id,
-                                                const size_t total_size_bytes, const uint8_t frag_idx,
-                                                const uint8_t frag_total, const void *additional_query_params)
+                                              const size_t total_size_bytes, const uint8_t frag_idx,
+                                              const uint8_t frag_total, const void *additional_query_params)
 {
     if (inst == NULL) {
         return NULL;
     }
 
-    if (additional_query_params != NULL && inst->api->additional_query_cb == NULL) {
+    if (additional_query_params != NULL && (inst->api == NULL || inst->api->additional_query_cb == NULL)) {
         return NULL;
     }
 
@@ -120,7 +120,7 @@ transport_buffer_t *transport_buffer_pool_get(transport_buffer_pool_t *inst, con
         }
 
         // If base criteria matches, and there's no callback for additional opaque queries, then our job is done
-        if (inst->api->additional_query_cb == NULL) {
+        if (inst->api == NULL || inst->api->additional_query_cb == NULL) {
             return buf;
         }
 
@@ -162,8 +162,8 @@ transport_buffer_t *transport_buffer_pool_get(transport_buffer_pool_t *inst, con
     return NULL;
 }
 
-transport_buffer_write_ret_t transport_buffer_write(transport_buffer_t *buf, const uint8_t frag_idx,
-                                                      const void *data, const size_t len_bytes)
+transport_buffer_write_ret_t transport_buffer_write(transport_buffer_t *buf, const uint8_t frag_idx, const void *data,
+                                                    const size_t len_bytes)
 {
     if (buf == NULL || data == NULL || len_bytes == 0) {
         return TRANSPORT_BUFFER_WRITE_RET_INVALID_ARGS;
@@ -206,7 +206,8 @@ transport_buffer_t *transport_buffer_ref(transport_buffer_t *buf)
         return NULL;
     }
 
-    (void)net_buf_ref(buf->buffer);
+    void *ret = net_buf_ref(buf->buffer);
+    (void)ret;
 
     return buf;
 }
