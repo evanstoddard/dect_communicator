@@ -24,7 +24,7 @@
 #include "dect/dect_transport_layer_private.h"
 #include "dect_link_layer.h"
 
-#include "hail/hail_transport.h"
+#include "alfie/alfie_transport.h"
 #include "utils/transport_buffer.h"
 
 /*****************************************************************************
@@ -70,10 +70,10 @@ static struct {
     dect_transport_buffer_t rx_buffers[DECT_TRANSPORT_LAYER_NUM_RX_BUFFERS];
     transport_buffer_pool_api_t rx_buffer_api;
 
-    hail_transport_rx_callback_t transport_rx_callback;
+    alfie_transport_rx_callback_t transport_rx_callback;
 
-    hail_transport_t transport;
-    hail_transport_api_t transport_api;
+    alfie_transport_t transport;
+    alfie_transport_api_t transport_api;
 
     // TODO: Limits to one transmission at a time.  Will move to outbound transport buffer pool
     struct k_sem ack_sem;
@@ -281,10 +281,10 @@ int dect_transport_layer_init(void)
     (void)dect_link_layer_register_rx_callback(prv_on_data_layer_rx);
 
     // FIXME: Ideally, this part is done outside this module.  This is the only "tight-coupling" between this lower
-    // level layer and the higher level hail layer
-    prv_inst.transport_api = (hail_transport_api_t){.register_rx_cb = dect_transport_layer_register_rx_callback,
+    // level layer and the higher level alfie layer
+    prv_inst.transport_api = (alfie_transport_api_t){.register_rx_cb = dect_transport_layer_register_rx_callback,
                                                     .write = dect_transport_layer_write};
-    prv_inst.transport = (hail_transport_t){.type = HAIL_TRANSPORT_TYPE_DOWNSTREAM, .api = &prv_inst.transport_api};
+    prv_inst.transport = (alfie_transport_t){.type = ALFIE_TRANSPORT_TYPE_DOWNSTREAM, .api = &prv_inst.transport_api};
     // TODO: Register transport with higher layer
 
     k_sem_init(&prv_inst.ack_sem, 0, 1);
@@ -342,7 +342,7 @@ int dect_transport_layer_write(const uint16_t dst_id, const void *data, size_t l
     return 0;
 }
 
-int dect_transport_layer_register_rx_callback(hail_transport_rx_callback_t callback)
+int dect_transport_layer_register_rx_callback(alfie_transport_rx_callback_t callback)
 {
     if (prv_inst.initialized == false) {
         return -ENODEV;

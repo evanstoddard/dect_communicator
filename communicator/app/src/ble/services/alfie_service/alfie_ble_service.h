@@ -3,19 +3,17 @@
  */
 
 /**
- * @file dect_transport_layer.h
+ * @file alfie_ble_service.h
  * @author Evan Stoddard
- * @brief Module to provide reliable data transfer over DECT
+ * @brief Implements BLE based transport layer for Alfie protocol
  */
 
-#ifndef dect_transport_layer_h
-#define dect_transport_layer_h
+#ifndef alfie_ble_service_h
+#define alfie_ble_service_h
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
-// NOTE: This definitely couples the transport layer with the higher level "alfie" layer, but fine for this MVP. This can
-// easily be refactored later on as a majority of this layer is fairly decoupled from upper levels of the stack
 #include "alfie/alfie_transport.h"
 #include "utils/transport_buffer.h"
 
@@ -36,31 +34,31 @@ extern "C" {
  *****************************************************************************/
 
 /**
- * @brief Initialize DECT transport layer
+ * @brief Initialize Alfie BLE service
  *
- * @return Returns 0 on success
+ * @return Returns 0 on success or negative errno on error
  */
-int dect_transport_layer_init(void);
+int alfie_ble_service_init(void);
 
 /**
- * @brief Write data over DECT transport layer (Synchronous and blocking call)
+ * @brief Write data over BLE transport layer (Synchronous and blocking)
  *
- * @param dst_id Destination ID
+ * @param dst_id Destination ID (Currently ignored by this module)
  * @param data Pointer to buffer to be written
  * @param len_bytes Length of buffer in bytes
  * @return Returns 0 on success or negative errno
  */
-int dect_transport_layer_write(const uint16_t dst_id, const void *data, size_t len_bytes);
+int alfie_ble_service_write(const uint16_t dst_id, const void *data, size_t len_bytes);
 
 /**
- * @brief Register RX callback. NOTE: Will overwrite previously registered callback
+ * @brief Register RX callback. NOTE: Will overwrite previously registered callback.
  *
  * @param callback Pointer to callback
  * @return Returns 0 on success
  */
-int dect_transport_layer_register_rx_callback(alfie_transport_rx_callback_t callback);
+int alfie_ble_service_register_rx_callback(alfie_transport_rx_callback_t callback);
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* dect_transport_layer_h */
+#endif /* alfie_ble_service_h */

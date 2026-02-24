@@ -3,13 +3,13 @@
  */
 
 /**
- * @file hail_transport.h
+ * @file alfie_transport.h
  * @author Evan Stoddard
  * @brief
  */
 
-#ifndef hail_transport_h
-#define hail_transport_h
+#ifndef alfie_transport_h
+#define alfie_transport_h
 
 #include <stdint.h>
 #include <stddef.h>
@@ -31,35 +31,35 @@ extern "C" {
  *****************************************************************************/
 
 typedef enum {
-    HAIL_TRANSPORT_TYPE_UPSTREAM,
-    HAIL_TRANSPORT_TYPE_DOWNSTREAM,
-} hail_transport_type_t;
+    ALFIE_TRANSPORT_TYPE_UPSTREAM,
+    ALFIE_TRANSPORT_TYPE_DOWNSTREAM,
+} alfie_transport_type_t;
 
-struct hail_transport_t;
+struct alfie_transport_t;
 
-typedef void (*hail_transport_rx_callback_t)(struct hail_transport_t *transport,
+typedef void (*alfie_transport_rx_callback_t)(struct alfie_transport_t *transport,
                                              transport_buffer_t *buffer);
 
 /**
- * @typedef hail_transport_api_t
- * @brief API definition for a HAIL transport layer
+ * @typedef alfie_transport_api_t
+ * @brief API definition for an ALFIE transport layer
  *
  */
-typedef struct hail_transport_api_t {
+typedef struct alfie_transport_api_t {
     int (*write)(const uint16_t dst_id, const void *data, const size_t len_bytes);
-    int (*register_rx_cb)(hail_transport_rx_callback_t callback);
-} hail_transport_api_t;
+    int (*register_rx_cb)(alfie_transport_rx_callback_t callback);
+} alfie_transport_api_t;
 
 /**
- * @typedef hail_transport_t
- * @brief Definition of a HAIL transport layer
+ * @typedef alfie_transport_t
+ * @brief Definition of an ALFIE transport layer
  *
  */
-typedef struct hail_transport_t {
+typedef struct alfie_transport_t {
     sys_snode_t node;
-    hail_transport_api_t *api;
-    hail_transport_type_t type;
-} hail_transport_t;
+    alfie_transport_api_t *api;
+    alfie_transport_type_t type;
+} alfie_transport_t;
 
 /*****************************************************************************
  * Function Prototypes
@@ -68,4 +68,4 @@ typedef struct hail_transport_t {
 #ifdef __cplusplus
 }
 #endif
-#endif /* hail_transport_h */
+#endif /* alfie_transport_h */
