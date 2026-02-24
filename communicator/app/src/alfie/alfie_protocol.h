@@ -3,42 +3,45 @@
  */
 
 /**
- * @file device_id.c
+ * @file alfie_protocol.h
  * @author Evan Stoddard
- * @brief
+ * @brief Alfie protocol definition
  */
 
-#include "device_id.h"
+#ifndef alfie_protocol_h
+#define alfie_protocol_h
 
-#include <stdbool.h>
+#include <stdint.h>
 
-#include <zephyr/drivers/hwinfo.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*****************************************************************************
  * Definitions
  *****************************************************************************/
 
 /*****************************************************************************
- * Variables
+ * Structs, Unions, Enums, & Typedefs
  *****************************************************************************/
+
+/**
+ * @typedef alfie_proto_header_t
+ * @brief Header for Alfie protocol
+ *
+ */
+typedef struct alfie_proto_header_t {
+    uint8_t version;
+    uint8_t endpoint_id;
+    uint32_t src_id;
+    uint32_t dst_id;
+} __attribute__((__packed__)) alfie_proto_header_t;
 
 /*****************************************************************************
- * Prototypes
+ * Function Prototypes
  *****************************************************************************/
 
-/*****************************************************************************
- * Functions
- *****************************************************************************/
-
-uint32_t device_id(void)
-{
-    static bool fetched = false;
-    static uint32_t id = 0;
-
-    if (fetched == false) {
-        hwinfo_get_device_id((void *)&id, sizeof(id));
-        fetched = true;
-    }
-
-    return id;
+#ifdef __cplusplus
 }
+#endif
+#endif /* alfie_protocol_h */

@@ -57,7 +57,7 @@ LOG_MODULE_REGISTER(dect_transport_layer);
  */
 typedef struct dect_transport_buffer_t {
     transport_buffer_t base;
-    uint16_t src_id;
+    uint32_t src_id;
 } dect_transport_buffer_t;
 
 /**
@@ -92,7 +92,7 @@ NET_BUF_POOL_DEFINE(prv_rx_buffer_pool, DECT_TRANSPORT_LAYER_NUM_RX_BUFFERS,
  * @param dst_id Destination ID to send ACK to
  * @param frame Pointer to received data frame
  */
-static void prv_write_data_ack(uint16_t dst_id, const dect_transport_layer_data_frame_t *frame)
+static void prv_write_data_ack(uint32_t dst_id, const dect_transport_layer_data_frame_t *frame)
 {
     dect_transport_layer_data_frame_ack_t ack_frame = {
         .header.version = 0,
@@ -130,7 +130,7 @@ static void prv_handle_complete_incoming_data_transaction(dect_transport_buffer_
  * @param header Pointer to frame header
  * @param len_bytes Total length of incoming frame
  */
-static void prv_handle_data_frame(uint16_t src_id, const dect_transport_layer_frame_header_t *header, size_t len_bytes)
+static void prv_handle_data_frame(uint32_t src_id, const dect_transport_layer_frame_header_t *header, size_t len_bytes)
 {
     dect_transport_layer_data_frame_t *data_frame = (dect_transport_layer_data_frame_t *)header;
 
@@ -191,7 +191,7 @@ static void prv_handle_data_ack_frame(const dect_transport_layer_frame_header_t 
  * @param buf Pointer to incoming data
  * @param len_bytes Length of incoming data
  */
-static void prv_on_data_layer_rx(const uint16_t src_id, const void *buf, const size_t len_bytes)
+static void prv_on_data_layer_rx(const uint32_t src_id, const void *buf, const size_t len_bytes)
 {
     if (len_bytes < sizeof(dect_transport_layer_frame_header_t)) {
         LOG_WRN("Invalid transport layer frame header.");
@@ -221,7 +221,7 @@ static void prv_on_data_layer_rx(const uint16_t src_id, const void *buf, const s
  * @param len_bytes Length of frame, including header and payload
  * @return Returns 0 on success or negative errno on failure
  */
-static int prv_write_data_frame(const uint16_t dst_id, dect_transport_layer_data_frame_t *frame, size_t len_bytes)
+static int prv_write_data_frame(const uint32_t dst_id, dect_transport_layer_data_frame_t *frame, size_t len_bytes)
 {
     int ret = 0;
 
@@ -253,7 +253,7 @@ static int prv_write_data_frame(const uint16_t dst_id, dect_transport_layer_data
 static bool prv_additional_query_matches(const transport_buffer_t *buffer, const void *additional_params)
 {
     const dect_transport_buffer_t *buf = (const dect_transport_buffer_t *)buffer;
-    const uint16_t *src_id = (const uint16_t *)additional_params;
+    const uint32_t *src_id = (const uint32_t *)additional_params;
 
     return (*src_id == buf->src_id);
 }
@@ -294,7 +294,7 @@ int dect_transport_layer_init(void)
     return 0;
 }
 
-int dect_transport_layer_write(const uint16_t dst_id, const void *data, size_t len_bytes)
+int dect_transport_layer_write(const uint32_t dst_id, const void *data, size_t len_bytes)
 {
     if (prv_inst.initialized == false) {
         return -ENOLINK;
@@ -354,4 +354,13 @@ int dect_transport_layer_register_rx_callback(alfie_transport_rx_callback_t call
 
     prv_inst.transport_rx_callback = callback;
     return 0;
+}
+
+alfie_transport_t *dect_transport_layer_get_transport(void)
+{
+    if (prv_inst.initialized == false) {
+        return NULL;
+    }
+
+    return &prv_inst.transport;
 }
