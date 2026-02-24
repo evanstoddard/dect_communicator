@@ -1,5 +1,5 @@
 """
-DECT NR+ Communicator — Textual TUI for BLE messaging.
+DECT NR+ Communicator — Textual TUI for BLE messaging via Alfie protocol.
 
 Usage:
     cd utils/ble_client
@@ -7,10 +7,11 @@ Usage:
     python app.py
 
 Commands (type in the input bar):
-    /scan              Scan for nearby devices advertising the messaging service
+    /scan              Scan for nearby devices advertising the Alfie BLE service
     /connect <#|addr>  Connect by scan index or BLE address
     /disconnect        Disconnect from device
-    /dst <id>          Set the DECT destination ID (decimal)
+    /src <id>          Set the source device ID (decimal)
+    /dst <id>          Set the destination device ID (decimal)
     /help              Show available commands
 """
 
@@ -27,7 +28,7 @@ from protocol import TextMessage, MAX_TEXT_PAYLOAD_SIZE
 
 
 class StatusBar(Static):
-    """Single-line bar showing connection state and destination ID."""
+    """Single-line bar showing connection state, source ID, and destination ID."""
 
 
 class MessagingApp(App):
@@ -65,6 +66,7 @@ class MessagingApp(App):
             on_connection_change=self._on_ble_connection_change,
             on_error=self._on_ble_error,
         )
+        self.src_id = 0
         self.dst_id = 1
 
     def compose(self) -> ComposeResult:
@@ -83,7 +85,7 @@ class MessagingApp(App):
             if self.client.connected
             else "[red]Disconnected[/red]"
         )
-        return f"{conn}  |  DST ID: {self.dst_id}"
+        return f"{conn}  |  SRC ID: {self.src_id:#010x}  |  DST ID: {self.dst_id:#010x}"
 
     def _update_status(self):
         self.query_one(StatusBar).update(self._status_text())
@@ -132,7 +134,8 @@ class MessagingApp(App):
                 "Connect (scan index or BLE address)"
             )
             self._log("  [bold]/disconnect[/bold]         Disconnect from device")
-            self._log("  [bold]/dst[/bold] <id>           Set destination ID")
+            self._log("  [bold]/src[/bold] <id>           Set source device ID")
+            self._log("  [bold]/dst[/bold] <id>           Set destination device ID")
             self._log("  [bold]/help[/bold]              Show this help")
         elif command == "/scan":
             self._do_scan()
@@ -143,11 +146,18 @@ class MessagingApp(App):
             self._do_connect(args)
         elif command == "/disconnect":
             self._do_disconnect()
+        elif command == "/src":
+            try:
+                self.src_id = int(args, 0)
+                self._update_status()
+                self._log(f"Source ID set to [bold]{self.src_id:#010x}[/bold]")
+            except ValueError:
+                self._log("[red]Usage: /src <number>[/red]")
         elif command == "/dst":
             try:
-                self.dst_id = int(args)
+                self.dst_id = int(args, 0)
                 self._update_status()
-                self._log(f"Destination ID set to [bold]{self.dst_id}[/bold]")
+                self._log(f"Destination ID set to [bold]{self.dst_id:#010x}[/bold]")
             except ValueError:
                 self._log("[red]Usage: /dst <number>[/red]")
         else:
@@ -220,7 +230,7 @@ class MessagingApp(App):
 
         self._log(f"[cyan]TX →[/cyan] {escape(text)}")
         try:
-            await self.client.send_text(self.dst_id, text)
+            await self.client.send_text(self.src_id, self.dst_id, text)
         except Exception as e:
             self._log(f"[red]Send failed: {escape(str(e))}[/red]")
 
@@ -232,7 +242,7 @@ class MessagingApp(App):
         self._safe_call(
             self._log,
             f"[magenta]RX ←[/magenta] {escape(msg.text)}  "
-            f"[dim](dst:{msg.dst_id} id:{uuid_short})[/dim]",
+            f"[dim](src:{msg.src_id:#010x} dst:{msg.dst_id:#010x} id:{uuid_short})[/dim]",
         )
 
     def _on_ble_error(self, error: str):
