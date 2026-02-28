@@ -1,4 +1,8 @@
-# Alfie 
+<p align="center">
+  <img src="docs/alfie_logo.png" alt="Alfie Logo" width="200">
+</p>
+
+# Alfie
 
 A BLE-enabled accessory that provides SMS-style messaging over DECT NR+. This project is in its early stages of development.
 
