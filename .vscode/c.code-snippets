@@ -2,7 +2,7 @@
     "New Header": {
 		"prefix": ["~~zephyr_header"],
 		"body": [
-			"/*", " * Copyright (C) Ovyl",
+			"/*", " * Copyright (C) Evan Stoddard",
 			" */",
 			"",
 			"/**",
@@ -40,7 +40,7 @@
   "New Implementation File": {
 		"prefix": ["~~zephyr_impl"],
 		"body": [
-			"/*", " * Copyright (C) Ovyl", 
+			"/*", " * Copyright (C) Evan Stoddard", 
 			" */",
 			"",
 			"/**",
