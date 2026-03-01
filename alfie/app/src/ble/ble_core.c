@@ -11,6 +11,7 @@
 #include "ble_core.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include <zephyr/logging/log.h>
 
@@ -28,6 +29,8 @@ LOG_MODULE_REGISTER(ble_core);
 
 #define BLE_CORE_NRF5340_RESET_PULSE_MS (10U)
 #define BLE_CORE_NRF5340_BOOT_DELAY_MS (3000U)
+
+#define BLE_CORE_MAX_ADV_UUID128 (1U)
 
 static const struct gpio_dt_spec prv_nrf5340_reset =
     GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), nrf5340_reset_gpios);
@@ -48,6 +51,11 @@ static struct bt_data prv_ad_data[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
     {0},
 };
+
+static uint8_t prv_adv_uuid128_buf[BLE_CORE_MAX_ADV_UUID128 * BT_UUID_SIZE_128];
+static uint8_t prv_adv_uuid128_count;
+
+static struct bt_data prv_sd_data[BLE_CORE_MAX_ADV_UUID128];
 
 static struct {
     struct k_work adv_work;
@@ -97,7 +105,18 @@ static int prv_reset_nrf5340(void)
  */
 static void prv_advertising_work_handler(struct k_work *work)
 {
-    int ret = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, prv_ad_data, ARRAY_SIZE(prv_ad_data), NULL, 0);
+    const struct bt_data *sd = NULL;
+    size_t sd_len = 0;
+
+    if (prv_adv_uuid128_count > 0) {
+        prv_sd_data[0].type = BT_DATA_UUID128_ALL;
+        prv_sd_data[0].data_len = prv_adv_uuid128_count * BT_UUID_SIZE_128;
+        prv_sd_data[0].data = prv_adv_uuid128_buf;
+        sd = prv_sd_data;
+        sd_len = 1;
+    }
+
+    int ret = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, prv_ad_data, ARRAY_SIZE(prv_ad_data), sd, sd_len);
     if (ret) {
         LOG_ERR("Advertising failed to start: %d", ret);
         return;
@@ -176,7 +195,24 @@ int ble_core_init(void)
 
     k_work_init(&prv_inst.adv_work, prv_advertising_work_handler);
 
-    k_work_submit(&prv_inst.adv_work);
+    return 0;
+}
 
+int ble_core_register_adv_uuid128(const struct bt_uuid_128 *uuid)
+{
+    if (prv_adv_uuid128_count >= BLE_CORE_MAX_ADV_UUID128) {
+        return -ENOMEM;
+    }
+
+    memcpy(&prv_adv_uuid128_buf[prv_adv_uuid128_count * BT_UUID_SIZE_128],
+           uuid->val, BT_UUID_SIZE_128);
+    prv_adv_uuid128_count++;
+
+    return 0;
+}
+
+int ble_core_start_advertising(void)
+{
+    k_work_submit(&prv_inst.adv_work);
     return 0;
 }

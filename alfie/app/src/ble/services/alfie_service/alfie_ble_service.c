@@ -27,6 +27,7 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/conn.h>
 
+#include "ble/ble_core.h"
 #include "ble/services/alfie_service/alfie_ble_service_protocol.h"
 
 #include "utils/transport_buffer.h"
@@ -353,7 +354,10 @@ int alfie_ble_service_init(void)
 
     prv_inst.transport = (alfie_transport_t){.api = &prv_inst.transport_api, .type = ALFIE_TRANSPORT_TYPE_UPSTREAM};
 
-    // TODO: Register with alfie router
+    ret = ble_core_register_adv_uuid128(&prv_alfie_ble_service_uuid);
+    if (ret != 0) {
+        LOG_WRN("Failed to register service UUID for advertising: %d", ret);
+    }
 
     prv_inst.initialized = true;
 
