@@ -65,6 +65,12 @@ int main(void)
         return ret;
     }
 
+    ret = ble_core_start_advertising();
+    if (ret != 0) {
+        LOG_ERR("Failed to start BLE advertising: %d", ret);
+        return ret;
+    }
+
     ret = alfie_router_init();
     if (ret != 0) {
         LOG_ERR("Failed to initialize Alfie router: %d", ret);
