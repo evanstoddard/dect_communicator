@@ -28,12 +28,11 @@
 LOG_MODULE_REGISTER(ble_core);
 
 #define BLE_CORE_NRF5340_RESET_PULSE_MS (10U)
-#define BLE_CORE_NRF5340_BOOT_DELAY_MS (3000U)
+#define BLE_CORE_NRF5340_BOOT_DELAY_MS  (3000U)
 
 #define BLE_CORE_MAX_ADV_UUID128 (1U)
 
-static const struct gpio_dt_spec prv_nrf5340_reset =
-    GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), nrf5340_reset_gpios);
+static const struct gpio_dt_spec prv_nrf5340_reset = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), nrf5340_reset_gpios);
 
 /*****************************************************************************
  * Variables
@@ -171,7 +170,7 @@ BT_CONN_CB_DEFINE(prv_conn_callbacks) = {
  */
 int ble_core_init(void)
 {
-    int len = snprintf(prv_device_name, sizeof(prv_device_name), "DECT-%u", device_id());
+    int len = snprintf(prv_device_name, sizeof(prv_device_name), "Alfie-%08x", device_id());
     prv_ad_data[1].type = BT_DATA_NAME_COMPLETE;
     prv_ad_data[1].data_len = len;
     prv_ad_data[1].data = (const uint8_t *)prv_device_name;
@@ -204,8 +203,7 @@ int ble_core_register_adv_uuid128(const struct bt_uuid_128 *uuid)
         return -ENOMEM;
     }
 
-    memcpy(&prv_adv_uuid128_buf[prv_adv_uuid128_count * BT_UUID_SIZE_128],
-           uuid->val, BT_UUID_SIZE_128);
+    memcpy(&prv_adv_uuid128_buf[prv_adv_uuid128_count * BT_UUID_SIZE_128], uuid->val, BT_UUID_SIZE_128);
     prv_adv_uuid128_count++;
 
     return 0;
